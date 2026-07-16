@@ -1,0 +1,37 @@
+name: Release (macOS)
+
+# Runs whenever you publish a Release on GitHub. It builds the universal macOS
+# app and attaches the .dmg and .zip to that same release.
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build universal macOS app (.dmg + .zip)
+        run: npx electron-builder --mac --universal
+        env:
+          # No Apple Developer cert in CI — skip code signing.
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+
+      - name: Attach installers to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" dist/*.dmg dist/*.zip --clobber

@@ -6,6 +6,15 @@ const fs = require('fs');
 const { spawn } = require('child_process');
 const yaml = require('js-yaml');
 
+// Apps launched from Finder/Dock inherit a minimal PATH that usually omits the
+// locations where `docker` lives, so spawning it would fail with ENOENT. Make
+// sure the common CLI bin dirs are on PATH (harmless in dev, essential when packaged).
+if (process.platform !== 'win32') {
+  const extra = ['/usr/local/bin', '/opt/homebrew/bin', '/usr/bin', '/bin', '/usr/sbin', '/sbin'];
+  const current = (process.env.PATH || '').split(':').filter(Boolean);
+  process.env.PATH = Array.from(new Set(current.concat(extra))).join(':');
+}
+
 // ---------------------------------------------------------------------------
 // Config persistence
 // ---------------------------------------------------------------------------

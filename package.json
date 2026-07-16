@@ -24,6 +24,7 @@
   "build": {
     "appId": "com.tomturner.simpledjangoeditor",
     "productName": "Simple Django Editor",
+    "asar": false,
     "files": [
       "main.js",
       "preload.js",

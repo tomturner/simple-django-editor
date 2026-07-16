@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy"
+          content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;" />
+    <title>Simple Django Editor</title>
+    <link rel="stylesheet" href="../node_modules/@xterm/xterm/css/xterm.css" />
+    <link rel="stylesheet" href="../node_modules/codemirror/lib/codemirror.css" />
+    <link rel="stylesheet" href="../node_modules/codemirror/theme/material-darker.css" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <!-- Toolbar -->
+    <header id="toolbar">
+      <div class="tb-left">
+        <select id="configSelect" title="Run configuration"></select>
+        <button id="btnRun" class="btn btn-run" title="Run (⌘R)"><span class="tri"></span> Run</button>
+        <button id="btnStop" class="btn btn-stop" disabled title="Stop">■ Stop</button>
+      </div>
+      <div class="tb-right">
+        <span id="status" class="status">idle</span>
+        <span class="toggle-group">
+          <button id="tgFiles" class="btn btn-ghost toggle on" title="Toggle file explorer">Files</button>
+          <button id="tgEditor" class="btn btn-ghost toggle on" title="Toggle editor">Editor</button>
+          <button id="tgBrowser" class="btn btn-ghost toggle on" title="Toggle browser">Browser</button>
+          <button id="tgTerminal" class="btn btn-ghost toggle on" title="Toggle terminal">Terminal</button>
+          <button id="tgLayout" class="btn btn-ghost" title="Switch editor/browser between split and tabs">Split</button>
+        </span>
+        <button id="btnNew" class="btn btn-ghost" title="New configuration">＋ New</button>
+        <button id="btnEdit" class="btn btn-ghost" title="Edit configuration">Edit</button>
+        <button id="btnDelete" class="btn btn-ghost" title="Delete configuration">Delete</button>
+        <button id="btnSettings" class="btn btn-ghost" title="Settings">⚙</button>
+      </div>
+    </header>
+
+    <div id="workbench">
+      <!-- File explorer -->
+      <aside id="sidebar">
+        <div id="sidebarHead">
+          <span id="projectName" class="proj-name">No project</span>
+          <span class="spacer"></span>
+          <button id="btnOpenFolder" class="nav" title="Open folder…">📁</button>
+          <button id="btnRefreshTree" class="nav" title="Refresh">↻</button>
+        </div>
+        <div id="tree"></div>
+      </aside>
+      <div id="vsplit" class="vsplitter"></div>
+
+      <div id="mainArea">
+        <div id="topArea">
+          <!-- Code editor -->
+          <section id="editorPane">
+            <div id="editorHeader">
+              <div id="tabBar"></div>
+              <button id="btnSaveFile" class="btn btn-ghost tiny" disabled title="Save (⌘S)">Save</button>
+            </div>
+            <div id="editorHost"></div>
+          </section>
+
+          <div id="hsplit" class="vsplitter"></div>
+
+          <!-- Embedded browser -->
+          <section id="browserPane">
+            <div id="browserBar">
+              <button id="navBack" class="nav" title="Back">‹</button>
+              <button id="navFwd" class="nav" title="Forward">›</button>
+              <button id="navReload" class="nav" title="Reload">⟳</button>
+              <button id="navHardReload" class="nav" title="Hard reload (ignore cache)">⚡</button>
+              <input id="urlInput" type="text" spellcheck="false" placeholder="http://localhost:8000/" />
+              <button id="navGo" class="nav" title="Go">Go</button>
+            </div>
+            <webview id="wv" src="about:blank"></webview>
+          </section>
+        </div>
+
+        <div id="resizer"></div>
+
+        <!-- Terminal -->
+        <section id="termPane">
+          <div id="termBar">
+            <span class="term-title">Terminal</span>
+            <span id="termStatus" class="term-status"></span>
+            <button id="btnClear" class="btn btn-ghost tiny">Clear</button>
+          </div>
+          <div id="term"></div>
+        </section>
+      </div>
+    </div>
+
+    <!-- Config editor modal -->
+    <div id="editorOverlay" class="overlay hidden">
+      <div class="modal">
+        <h2 id="editorTitle">Run configuration</h2>
+        <div class="field">
+          <label>Name</label>
+          <input id="fName" type="text" placeholder="Django server" />
+        </div>
+        <div class="field">
+          <label>Compose file</label>
+          <div class="row">
+            <input id="fCompose" type="text" readonly placeholder="Select a docker-compose file…" />
+            <button id="btnBrowse" class="btn btn-ghost">Browse…</button>
+          </div>
+        </div>
+        <div class="field">
+          <label>Service</label>
+          <div class="row">
+            <select id="fService"></select>
+            <button id="btnRefresh" class="btn btn-ghost" title="Re-read services from the compose file">↻</button>
+          </div>
+        </div>
+        <div class="field">
+          <label>Command</label>
+          <input id="fCommand" type="text" placeholder="python manage.py runserver 0.0.0.0:8000" />
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label>Host port</label>
+            <input id="fHostPort" type="number" placeholder="8000" />
+          </div>
+          <div class="field">
+            <label>Container port</label>
+            <input id="fContainerPort" type="number" placeholder="8000" />
+          </div>
+        </div>
+        <div class="field">
+          <label>Extra <code>run</code> args <span class="muted">(optional)</span></label>
+          <input id="fExtra" type="text" placeholder="-e DJANGO_SETTINGS_MODULE=app.settings.dev" />
+        </div>
+        <div class="field">
+          <label>Web address / domain <span class="muted">(optional — blank = http://localhost:&lt;host port&gt;)</span></label>
+          <input id="fUrl" type="text" placeholder="e.g. https://dev.myapp.local  —  or leave blank" />
+        </div>
+        <div class="field">
+          <label>Command preview</label>
+          <pre id="cmdPreview" class="preview"></pre>
+        </div>
+        <div class="modal-actions">
+          <button id="btnEditorCancel" class="btn btn-ghost">Cancel</button>
+          <button id="btnEditorSave" class="btn btn-run">Save</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Settings modal -->
+    <div id="settingsOverlay" class="overlay hidden">
+      <div class="modal">
+        <h2>Settings</h2>
+        <div class="field">
+          <label>Compose command</label>
+          <input id="sCompose" type="text" placeholder="docker compose" />
+          <p class="muted small">Use <code>docker compose</code> (v2) or <code>docker-compose</code> (v1).</p>
+        </div>
+        <div class="field checkbox">
+          <label><input id="sForceColor" type="checkbox" /> Force colored output (FORCE_COLOR / PYTHONUNBUFFERED)</label>
+        </div>
+        <div class="field checkbox">
+          <label><input id="sAutoSave" type="checkbox" /> Autosave files when the editor loses focus</label>
+          <p class="muted small">Saves when you click away (to the browser, another tab, or another window) — not while typing. ⌘S saves anytime.</p>
+        </div>
+        <div class="field checkbox">
+          <label><input id="sAutoCleanup" type="checkbox" /> Free the host port &amp; clean up before each run</label>
+          <p class="muted small">Removes leftover one-off run containers and stops a same-project container that's holding the host port (e.g. your live web container), then takes the port over. Clears Compose's “orphan containers” warning too.</p>
+        </div>
+        <div class="modal-actions">
+          <button id="btnSettingsCancel" class="btn btn-ghost">Cancel</button>
+          <button id="btnSettingsSave" class="btn btn-run">Save</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Covers the webview while dragging so mouse events aren't swallowed -->
+    <div id="dragOverlay"></div>
+
+    <!-- Find in Files (Shift-Shift) -->
+    <div id="findOverlay" class="overlay hidden">
+      <div class="find-modal">
+        <div class="find-head">
+          <input id="findInput" type="text" spellcheck="false" placeholder="Search everywhere in project…" />
+          <label class="find-opt" title="Match case"><input id="findCase" type="checkbox" /> Aa</label>
+          <button id="findClose" class="btn btn-ghost tiny">Esc</button>
+        </div>
+        <div id="findResults" class="find-results"></div>
+        <div id="findStatus" class="find-status"></div>
+      </div>
+    </div>
+
+    <script src="../node_modules/@xterm/xterm/lib/xterm.js"></script>
+    <script src="../node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
+    <script src="../node_modules/codemirror/lib/codemirror.js"></script>
+    <script src="../node_modules/codemirror/mode/xml/xml.js"></script>
+    <script src="../node_modules/codemirror/mode/javascript/javascript.js"></script>
+    <script src="../node_modules/codemirror/mode/css/css.js"></script>
+    <script src="../node_modules/codemirror/mode/htmlmixed/htmlmixed.js"></script>
+    <script src="../node_modules/codemirror/mode/python/python.js"></script>
+    <script src="../node_modules/codemirror/mode/yaml/yaml.js"></script>
+    <script src="../node_modules/codemirror/mode/markdown/markdown.js"></script>
+    <script src="../node_modules/codemirror/mode/clike/clike.js"></script>
+    <script src="../node_modules/codemirror/mode/shell/shell.js"></script>
+    <script src="../node_modules/codemirror/mode/sql/sql.js"></script>
+    <script src="renderer.js"></script>
+  </body>
+</html>

@@ -1,0 +1,46 @@
+{
+  "name": "simple-django-editor",
+  "version": "1.0.0",
+  "description": "A tiny PyCharm-style IDE for running Django servers inside Docker Compose — file tree, code editor, built-in Chromium browser, and terminal.",
+  "main": "main.js",
+  "author": "Tom Turner",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder",
+    "dist:mac": "electron-builder --mac",
+    "dist:win": "electron-builder --win"
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/xterm": "^5.5.0",
+    "codemirror": "^5.65.21",
+    "js-yaml": "^4.1.0"
+  },
+  "devDependencies": {
+    "electron": "^31.3.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.tomturner.simpledjangoeditor",
+    "productName": "Simple Django Editor",
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**/*",
+      "node_modules/**/*"
+    ],
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    }
+  }
+}

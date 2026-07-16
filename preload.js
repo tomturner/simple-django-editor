@@ -17,7 +17,7 @@ contextBridge.exposeInMainWorld('api', {
   writeFile: (p, content) => ipcRenderer.invoke('fs:writeFile', { filePath: p, content }),
   searchProject: (root, query, caseSensitive) => ipcRenderer.invoke('project:search', { root, query, caseSensitive }),
 
-  openAssistant: () => ipcRenderer.invoke('assistant:open'),
+  openAssistant: (projectRoot) => ipcRenderer.invoke('assistant:open', projectRoot),
   assistantList: () => ipcRenderer.invoke('assistant:list'),
 
   checkUpdate: () => ipcRenderer.invoke('update:check'),

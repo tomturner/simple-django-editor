@@ -248,6 +248,22 @@ function send(channel, payload) {
 // Assistant (Claude) window
 // ---------------------------------------------------------------------------
 let assistantWin = null;
+let assistantProjectRoot = null; // project folder to scope assistants to
+
+// Substitute project tokens in an assistant URL:
+//   {project}     -> the project path, URL-encoded (for query params)
+//   {projectPath} -> the raw project path
+//   {projectName} -> the project folder name, URL-encoded
+function applyProjectTokens(url, root) {
+  if (!url) return url;
+  const clean = root ? String(root).replace(/[\/\\]+$/, '') : '';
+  const name = clean ? clean.split(/[\/\\]/).pop() : '';
+  return url
+    .replace(/\{project\}/g, clean ? encodeURIComponent(clean) : '')
+    .replace(/\{projectPath\}/g, clean)
+    .replace(/\{projectName\}/g, name ? encodeURIComponent(name) : '');
+}
+
 function openAssistantWindow() {
   if (assistantWin && !assistantWin.isDestroyed()) {
     assistantWin.show();
@@ -272,10 +288,18 @@ function openAssistantWindow() {
   assistantWin.on('closed', () => { assistantWin = null; });
 }
 
-ipcMain.handle('assistant:open', () => { openAssistantWindow(); return true; });
+ipcMain.handle('assistant:open', (_e, projectRoot) => {
+  assistantProjectRoot = projectRoot || null;
+  openAssistantWindow();
+  return true;
+});
 ipcMain.handle('assistant:list', () => {
   const list = (loadStore().settings.assistants || []).filter((a) => a && a.url && a.url.trim());
-  return list.map((a) => ({ name: a.name || 'Assistant', url: a.url.trim(), isDefault: !!a.isDefault }));
+  return list.map((a) => ({
+    name: a.name || 'Assistant',
+    url: applyProjectTokens(a.url.trim(), assistantProjectRoot),
+    isDefault: !!a.isDefault
+  }));
 });
 
 function stopChild(signal) {

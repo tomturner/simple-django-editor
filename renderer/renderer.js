@@ -1132,7 +1132,7 @@ function wire() {
   $('btnEdit').addEventListener('click', () => openConfigEditor(currentConfig() ? currentId : null));
   $('btnDelete').addEventListener('click', deleteCurrent);
   $('btnSettings').addEventListener('click', openSettings);
-  $('btnAssistant').addEventListener('click', () => window.api.openAssistant());
+  $('btnAssistant').addEventListener('click', () => window.api.openAssistant(projectRoot));
   $('btnAddAssistant').addEventListener('click', () => { assistantsWork.push({ name: '', url: '', isDefault: assistantsWork.length === 0 }); renderAssistants(); });
   $('btnClear').addEventListener('click', () => term.clear());
 

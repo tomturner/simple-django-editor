@@ -63,7 +63,7 @@ const editor = CodeMirror($('editorHost'), {
 editor.setSize('100%', '100%');
 const emptyDoc = editor.getDoc();
 
-// Save the active tab whenever the editor loses focus (PyCharm-style).
+// Save the active tab whenever the editor loses focus.
 editor.on('blur', () => { if (autoSaveOn()) saveActiveTab(); });
 
 const emptyHint = document.createElement('div');

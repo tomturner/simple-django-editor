@@ -1,6 +1,6 @@
 # Simple Django Editor
 
-A tiny, cross-platform, PyCharm-style desktop app for running Django dev servers
+A tiny, cross-platform, IDE-style desktop app for running Django dev servers
 **inside Docker Compose** — with a file tree, a code editor, a built-in Chromium
 browser, and a live terminal, all in one window.
 
@@ -9,7 +9,7 @@ Built with Electron, so it's the same on macOS and Windows and it *is* Chromium
 
 ## Features
 
-- **Run configurations** like PyCharm: pick a `docker-compose` file, choose a
+- **Run configurations**: pick a `docker-compose` file, choose a
   service, set the command, and map a host/container port. Named configs are
   saved and restored between launches.
 - **Runs the server the Docker way**:

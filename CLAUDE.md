@@ -7,7 +7,7 @@ Guidance for working in this repo.
 **Simple Django Editor** — a small cross-platform Electron desktop app (macOS +
 Windows) for running Django dev servers inside Docker Compose, with a file tree,
 a code editor, an embedded multi-tab Chromium browser, and a live terminal.
-PyCharm-style run configurations, but focused on the "run it in Docker" workflow.
+IDE-style run configurations, but focused on the "run it in Docker" workflow.
 
 ## Run / develop
 

@@ -36,7 +36,7 @@ const DEFAULT_STORE = {
     // Claude Code commands the user can run in the terminal window. Edit in Settings.
     claudeCommands: [
       { name: 'Claude', command: 'claude', isDefault: true },
-      { name: 'Copilot', command: 'copilot' }
+      { name: 'Codex', command: 'codex' }
     ]
   },
   configs: [],

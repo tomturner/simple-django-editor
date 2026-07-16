@@ -1,10 +1,16 @@
 name: Release (macOS)
 
-# Runs whenever you publish a Release on GitHub. It builds the universal macOS
-# app and attaches the .dmg and .zip to that same release.
+# Builds the universal macOS app and attaches the .dmg and .zip to a release.
+# Runs automatically when you publish a Release, and can be run manually against
+# an existing tag from the Actions tab.
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing release tag to build & attach to (e.g. v1.0.0)'
+        required: true
 
 permissions:
   contents: write
@@ -26,12 +32,14 @@ jobs:
         run: npm ci
 
       - name: Build universal macOS app (.dmg + .zip)
-        run: npx electron-builder --mac --universal
+        # --publish never: just build, don't let electron-builder publish (we
+        # attach the files ourselves in the next step).
+        run: npx electron-builder --mac --universal --publish never
         env:
-          # No Apple Developer cert in CI — skip code signing.
           CSC_IDENTITY_AUTO_DISCOVERY: false
 
       - name: Attach installers to the release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ github.event.release.tag_name }}" dist/*.dmg dist/*.zip --clobber
+          TAG: ${{ github.event.release.tag_name || github.event.inputs.tag }}
+        run: gh release upload "$TAG" dist/*.dmg dist/*.zip --clobber

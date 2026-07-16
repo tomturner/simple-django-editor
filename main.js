@@ -662,7 +662,10 @@ async function checkForUpdate(manual) {
     const rel = await fetchJSON(`https://api.github.com/repos/${UPDATE_REPO}/releases/latest`);
     const latest = String(rel.tag_name || '').replace(/^v/, '');
     const current = app.getVersion();
-    const dmg = (rel.assets || []).find((a) => /\.dmg$/i.test(a.name));
+    // Prefer the DMG matching this machine's architecture (arm64 / x64).
+    const dmgs = (rel.assets || []).filter((a) => /\.dmg$/i.test(a.name));
+    const archTag = process.arch === 'arm64' ? 'arm64' : 'x64';
+    const dmg = dmgs.find((a) => a.name.toLowerCase().indexOf(archTag) !== -1) || dmgs[0];
     const info = {
       current,
       latest,

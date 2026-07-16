@@ -31,10 +31,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build universal macOS app (.dmg + .zip)
-        # --publish never: just build, don't let electron-builder publish (we
-        # attach the files ourselves in the next step).
-        run: npx electron-builder --mac --universal --publish never
+      - name: Build macOS apps (.dmg + .zip, per architecture)
+        # Per-arch builds (arm64 + x64) — native node-pty can't be merged into a
+        # universal binary. --publish never: we attach the files ourselves next.
+        run: npx electron-builder --mac --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
 

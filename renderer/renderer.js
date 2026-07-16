@@ -10,6 +10,7 @@ let currentId = null;
 let running = false;
 let editingId = null;       // run-config id being edited in the modal, or null
 let parsedServices = [];    // [{name, ports}] from the last compose parse
+let editorTabsWork = [];    // working copy of browser tabs while editing a config
 let projectRoot = null;     // folder shown in the file tree
 
 // Editor tabs
@@ -120,6 +121,7 @@ function activateTab(id, jump) {
   emptyHint.style.display = 'none';
   $('btnSaveFile').disabled = !tab.dirty;
   highlightActive(tab.path);
+  updateTitle();
   updateLayout();
   renderTabBar();
   setTimeout(() => {
@@ -153,6 +155,7 @@ function closeTab(id) {
       emptyHint.style.display = '';
       $('btnSaveFile').disabled = true;
       highlightActive(null);
+      updateTitle();
       updateLayout();
     }
   }
@@ -210,6 +213,16 @@ function highlightActive(filePath) {
   });
 }
 
+// Window title: "<file> — <project> — Simple Django Editor"
+function updateTitle() {
+  const parts = [];
+  const t = activeTab();
+  if (t) parts.push(t.name);
+  if (projectRoot) parts.push(baseName(projectRoot));
+  parts.push('Simple Django Editor');
+  document.title = parts.join(' — ');
+}
+
 // ---------------------------------------------------------------------------
 // File tree
 // ---------------------------------------------------------------------------
@@ -218,6 +231,7 @@ async function openProject(rootPath) {
   projectRoot = rootPath;
   $('projectName').textContent = baseName(rootPath) || rootPath;
   $('projectName').title = rootPath;
+  updateTitle();
   const tree = $('tree');
   tree.innerHTML = '';
   const root = createTreeItem({ name: baseName(rootPath), path: rootPath, isDir: true }, 0);
@@ -338,7 +352,7 @@ function selectConfig(id) {
   renderConfigSelect();
   const cfg = currentConfig();
   if (cfg) {
-    $('urlInput').value = cfg.url || `http://localhost:${cfg.hostPort || 8000}/`;
+    buildBrowserTabs(configBrowserTabs(cfg));
     const root = cfg.projectRoot || (cfg.composeFile ? dirName(cfg.composeFile) : null);
     if (root && root !== projectRoot) openProject(root);
   }
@@ -360,12 +374,20 @@ async function run() {
   const res = await window.api.runStart({ config: cfg, settings: store.settings });
   if (!res.ok) { term.writeln(`\x1b[31m[sde] ${res.error}\x1b[0m`); return; }
   setRunning(true);
-  const url = cfg.url || `http://localhost:${cfg.hostPort || 8000}/`;
-  $('urlInput').value = url;
-  navigate(url);
+  bootDetected = false;
+  bootBuf = '';
+  // Reuse the tab webviews built when the config was selected — recreating them
+  // here would navigate them before they've attached (they'd stay blank).
+  if (!bTabs.length) buildBrowserTabs(configBrowserTabs(cfg));
+  const def = bTabs.find((t) => t.isDefault) || bTabs[0];
+  if (def) activateBrowserTab(def.id);
   if (layoutMode() === 'tabs') activateBrowser();
+  // Show the splash right away; the retry loop loads the real URLs and keeps
+  // trying until each returns real (non-empty) content.
+  bTabs.forEach((t) => { t.ok = false; showSplash(t); });
+  startBootReload();
 }
-async function stop() { await window.api.runStop(); $('termStatus').textContent = 'stopping…'; }
+async function stop() { clearInterval(bootTimer); bootTimer = null; await window.api.runStop(); $('termStatus').textContent = 'stopping…'; }
 function setRunning(on) {
   running = on;
   $('btnRun').disabled = on;
@@ -377,22 +399,242 @@ function setRunning(on) {
 }
 
 // ---------------------------------------------------------------------------
-// Embedded browser
+// Embedded browser — multiple tabs
 // ---------------------------------------------------------------------------
-const wv = $('wv');
-let retryTimer = null;
-function navigate(url) {
-  if (!url) return;
-  if (!/^[a-z]+:\/\//i.test(url)) url = 'http://' + url;
-  try { Promise.resolve(wv.loadURL(url)).catch(() => {}); } catch (e) { wv.src = url; }
+let bTabs = [];            // { id, name, url, isDefault, wv, loaded, auto, ok, failed }
+let activeBTab = null;
+let bSeq = 1;
+let bootTimer = null;      // retries tab loads while the server boots
+let bootDetected = false;  // server "ready" line seen this run
+let bootBuf = '';          // rolling, ANSI-stripped tail of server output
+
+// Keep (re)loading the real URL into any tab that isn't showing real content
+// yet — until it is. A tab is "ok" only once it loads a non-empty page, so an
+// empty warmup response (socket up, app not ready) keeps retrying. The
+// `loading` guard means we never interrupt a load that's in progress.
+function startBootReload() {
+  clearInterval(bootTimer);
+  let attempts = 0;
+  bTabs.forEach((t) => { t.ok = false; });
+  const tick = () => {
+    if (!running) { clearInterval(bootTimer); bootTimer = null; return; }
+    attempts++;
+    for (const t of bTabs) if (!t.ok && !t.loading && t.url) loadInto(t, t.url);
+    const withUrl = bTabs.filter((t) => t.url);
+    if ((withUrl.length && withUrl.every((t) => t.ok)) || attempts > 100) {
+      clearInterval(bootTimer);
+      bootTimer = null;
+    }
+  };
+  bootTimer = setInterval(tick, 1300);
+  setTimeout(tick, 400); // first attempt shortly after the splash shows
 }
-wv.addEventListener('did-fail-load', (e) => {
-  if (running && e.errorCode !== -3) {
-    clearTimeout(retryTimer);
-    retryTimer = setTimeout(() => { if (running) wv.reload(); }, 1000);
+
+// Called when the terminal shows the server is up — nudge any not-yet-loaded tab.
+function reloadAllTabs() { bTabs.forEach((t) => { if (t.url && !t.ok && !t.loading) loadInto(t, t.url); }); }
+
+function activeWebview() { const t = bTabs.find((x) => x.id === activeBTab); return t ? t.wv : null; }
+
+// Resolve a tab URL: '' -> host-port root, '/path' -> host-port + path, else as-is.
+function resolveTabUrl(cfg, url) {
+  const base = `http://localhost:${(cfg && cfg.hostPort) || 8000}`;
+  const u = (url || '').trim();
+  if (!u) return base + '/';
+  if (u.startsWith('/')) return base + u;
+  if (!/^[a-z]+:\/\//i.test(u)) return 'http://' + u;
+  return u;
+}
+
+// Map a tab's session choice to an Electron webview partition:
+//  - shared      -> default session (shares cache/cookies with everything)
+//  - persistent  -> its own session, saved to disk (a second logged-in user sticks)
+//  - incognito   -> its own in-memory session, wiped on rebuild/quit
+let partNonce = 1;
+function partitionFor(cfg, session, idx, nonce) {
+  const key = (cfg && cfg.id ? cfg.id : 'nocfg') + '-' + idx;
+  if (session === 'persistent') return 'persist:sde-' + key;
+  if (session === 'incognito') return 'sde-inc-' + key + '-' + nonce;
+  return undefined; // shared
+}
+function sessionKind(partition) {
+  if (!partition) return null;
+  return partition.startsWith('persist:') ? 'persist' : 'incog';
+}
+
+// The browser-tab list for a config (with URLs resolved), falling back to the
+// legacy single `url`/host-port when a config predates browser tabs.
+function configBrowserTabs(cfg) {
+  const nonce = partNonce++;
+  if (cfg && Array.isArray(cfg.browserTabs) && cfg.browserTabs.length) {
+    return cfg.browserTabs.map((t, i) => ({
+      name: t.name || 'Tab',
+      url: resolveTabUrl(cfg, t.url),
+      isDefault: !!t.isDefault,
+      partition: partitionFor(cfg, t.session, i, nonce)
+    }));
   }
-});
-wv.addEventListener('did-navigate', (e) => { if (e.url && e.url !== 'about:blank') $('urlInput').value = e.url; });
+  return [{ name: 'App', url: resolveTabUrl(cfg, cfg && cfg.url), isDefault: true }];
+}
+
+function buildBrowserTabs(list) {
+  $('browserViews').innerHTML = '';
+  bTabs = [];
+  activeBTab = null;
+  for (const t of list) createBrowserTab(t.name, t.url, t.isDefault, t.partition);
+  if (!bTabs.length) createBrowserTab('App', '', true);
+  const def = bTabs.find((t) => t.isDefault) || bTabs[0];
+  activateBrowserTab(def.id);
+  renderBrowserStrip();
+}
+
+function createBrowserTab(name, url, isDefault, partition) {
+  const wv = document.createElement('webview');
+  wv.className = 'bwv';
+  if (partition) wv.setAttribute('partition', partition); // must be set before attach
+  wv.setAttribute('src', 'about:blank');
+  wv.style.display = 'none';
+  $('browserViews').appendChild(wv);
+  const tab = { id: 'b' + (bSeq++), name: name || 'Tab', url: url || '', isDefault: !!isDefault, partition: partition || null, wv, auto: false, ok: false, loading: false };
+  wv.addEventListener('did-start-loading', () => { tab.loading = true; tab.failedLoad = false; });
+  wv.addEventListener('did-stop-loading', () => { tab.loading = false; });
+  wv.addEventListener('did-finish-load', () => {
+    const u = (typeof wv.getURL === 'function') ? wv.getURL() : '';
+    if (!u || u === 'about:blank' || u.indexOf('data:') === 0) return; // splash/blank
+    if (tab.failedLoad) return; // this "finish" is Chromium's error page for a failed load
+    // Confirm the page has real content — the server can return an empty body
+    // during the brief app warmup right after it binds the port. "Real" means
+    // the body has children/text, or the document is substantial (e.g. a JS app
+    // shell). An empty warmup response is a tiny, content-less document.
+    wv.executeJavaScript(
+      '(function(){try{var h=document.documentElement.outerHTML.length;'
+      + 'var b=document.body;var c=b&&(b.children.length>0||b.innerText.trim().length>0);'
+      + 'return h>=200||!!c;}catch(e){return true;}})()'
+    )
+      .then((real) => {
+        if (real) { tab.ok = true; }
+        else if (!tab.ok) { showSplash(tab); } // empty warmup → keep waiting
+      })
+      .catch(() => { tab.ok = true; });
+  });
+  wv.addEventListener('did-fail-load', (e) => {
+    if (e.isMainFrame && e.errorCode !== -3) {
+      tab.failedLoad = true;                 // so the error page's did-finish-load is ignored
+      if (!tab.ok) showSplash(tab);          // show the splash, not Chromium's error page
+    }
+  });
+  wv.addEventListener('did-navigate', (e) => {
+    if (e.url && e.url !== 'about:blank' && e.url.indexOf('data:') !== 0) {
+      tab.url = e.url;
+      if (tab.id === activeBTab) $('urlInput').value = e.url;
+    }
+  });
+  wv.addEventListener('page-title-updated', (e) => {
+    if (tab.auto && e.title) { tab.name = e.title.slice(0, 30); renderBrowserStrip(); }
+  });
+  bTabs.push(tab);
+  return tab;
+}
+
+function activateBrowserTab(id) {
+  activeBTab = id;
+  for (const t of bTabs) t.wv.style.display = (t.id === id) ? '' : 'none';
+  const t = bTabs.find((x) => x.id === id);
+  if (t) $('urlInput').value = t.url || '';
+  renderBrowserStrip();
+}
+
+// Load a URL into a tab. Uses loadURL (works once the webview has attached,
+// which it has by run-time since tabs are built at select) and falls back to
+// the src attribute if the webview isn't ready yet. No about:blank nudge — that
+// aborts/re-requests fast enough to make some servers reset the connection.
+function loadInto(tab, url) {
+  try {
+    const p = tab.wv.loadURL(url);
+    if (p && p.catch) p.catch(() => {});
+  } catch (e) {
+    try { tab.wv.setAttribute('src', url); } catch (_) { /* not ready */ }
+  }
+}
+
+// A local "waiting for the server" splash shown while the server boots (or
+// returns empty warmup responses) so tabs never sit blank.
+function splashDataUrl(name) {
+  const html = '<!doctype html><html><body style="margin:0;height:100vh;display:flex;'
+    + 'align-items:center;justify-content:center;font-family:-apple-system,Segoe UI,Roboto,sans-serif;'
+    + 'background:#1e1f22;color:#9aa0a6"><div style="text-align:center">'
+    + '<div style="width:24px;height:24px;border:3px solid #3574f0;border-top-color:transparent;'
+    + 'border-radius:50%;margin:0 auto 14px;animation:sp .8s linear infinite"></div>'
+    + '<div style="color:#dfe1e5;font-size:14px">Waiting for the server…</div>'
+    + '<div style="font-size:12px;margin-top:5px">' + (name || '') + '</div></div>'
+    + '<style>@keyframes sp{to{transform:rotate(360deg)}}</style></body></html>';
+  return 'data:text/html;charset=utf-8,' + encodeURIComponent(html);
+}
+function showSplash(tab) { if (tab) loadInto(tab, splashDataUrl(tab.name)); }
+
+function navigateTab(tab, url) {
+  if (!tab || !url) return;
+  if (!/^[a-z]+:\/\//i.test(url)) url = 'http://' + url;
+  tab.url = url;
+  loadInto(tab, url);
+}
+
+function navigate(url) { const t = bTabs.find((x) => x.id === activeBTab); if (t) navigateTab(t, url); }
+
+function closeBrowserTab(id) {
+  if (bTabs.length <= 1) return;
+  const idx = bTabs.findIndex((t) => t.id === id);
+  if (idx < 0) return;
+  const [t] = bTabs.splice(idx, 1);
+  clearTimeout(t.retry);
+  t.wv.remove();
+  if (activeBTab === id) { const n = bTabs[idx] || bTabs[idx - 1]; activateBrowserTab(n.id); }
+  renderBrowserStrip();
+}
+
+function currentBaseUrl() { return resolveTabUrl(currentConfig(), ''); }
+
+function renderBrowserStrip() {
+  const strip = $('browserTabStrip');
+  strip.innerHTML = '';
+  for (const t of bTabs) {
+    const el = document.createElement('div');
+    const kind = sessionKind(t.partition);
+    el.className = 'btab' + (t.id === activeBTab ? ' active' : '') + (kind ? ' ' + kind : '');
+    if (kind) {
+      const sym = document.createElement('span');
+      sym.className = 'btab-sym';
+      sym.textContent = kind === 'incog' ? '🕶' : '👤';
+      sym.title = kind === 'incog' ? 'Incognito session (not saved)' : 'Separate saved login';
+      el.appendChild(sym);
+    }
+    const nm = document.createElement('span');
+    nm.className = 'btab-name';
+    nm.textContent = t.name;
+    nm.title = (t.url || t.name) + (kind === 'incog' ? '  ·  incognito' : kind === 'persist' ? '  ·  separate login' : '');
+    el.appendChild(nm);
+    if (bTabs.length > 1) {
+      const c = document.createElement('span');
+      c.className = 'btab-close';
+      c.textContent = '×';
+      c.addEventListener('click', (e) => { e.stopPropagation(); closeBrowserTab(t.id); });
+      el.appendChild(c);
+    }
+    el.addEventListener('click', () => { activateBrowserTab(t.id); if (!t.ok && t.url) navigateTab(t, t.url); });
+    strip.appendChild(el);
+  }
+  const add = document.createElement('div');
+  add.className = 'btab btab-add';
+  add.textContent = '＋';
+  add.title = 'New tab';
+  add.addEventListener('click', () => {
+    const tab = createBrowserTab('New tab', currentBaseUrl(), false);
+    tab.auto = true;
+    activateBrowserTab(tab.id);
+    navigateTab(tab, tab.url);
+    renderBrowserStrip();
+  });
+  strip.appendChild(add);
+}
 
 // ---------------------------------------------------------------------------
 // Layout + panel toggles
@@ -644,7 +886,8 @@ function openConfigEditor(id) {
   $('fHostPort').value = cfg ? (cfg.hostPort || '') : '8000';
   $('fContainerPort').value = cfg ? (cfg.containerPort || '') : '8000';
   $('fExtra').value = cfg ? (cfg.extraArgs || '') : '';
-  $('fUrl').value = cfg ? (cfg.url || '') : '';
+  editorTabsWork = configEditorSeed(cfg);
+  renderEditorTabs();
   parsedServices = [];
   populateServiceSelect(cfg ? cfg.service : null);
   refreshPreview();
@@ -653,6 +896,68 @@ function openConfigEditor(id) {
   $('fName').focus();
 }
 function closeConfigEditor() { $('editorOverlay').classList.add('hidden'); }
+
+// Seed the editor's browser-tab rows from a config (raw, unresolved URLs).
+function configEditorSeed(cfg) {
+  if (cfg && Array.isArray(cfg.browserTabs) && cfg.browserTabs.length) {
+    return cfg.browserTabs.map((t) => ({ name: t.name || '', url: t.url || '', isDefault: !!t.isDefault, session: t.session || 'shared' }));
+  }
+  return [{ name: 'App', url: (cfg && cfg.url) || '', isDefault: true, session: 'shared' }];
+}
+
+function renderEditorTabs() {
+  const list = $('tabsList');
+  list.innerHTML = '';
+  editorTabsWork.forEach((t, i) => {
+    const row = document.createElement('div');
+    row.className = 'tab-row';
+
+    const def = document.createElement('input');
+    def.type = 'radio';
+    def.name = 'defTab';
+    def.checked = !!t.isDefault;
+    def.title = 'Default (focused) tab';
+    def.addEventListener('change', () => { editorTabsWork.forEach((x) => { x.isDefault = false; }); t.isDefault = true; });
+
+    const name = document.createElement('input');
+    name.type = 'text';
+    name.className = 'tab-name';
+    name.placeholder = 'Name';
+    name.value = t.name || '';
+    name.addEventListener('input', () => { t.name = name.value; });
+
+    const url = document.createElement('input');
+    url.type = 'text';
+    url.className = 'tab-url';
+    url.placeholder = '/admin/  or  https://dev.myapp.local';
+    url.value = t.url || '';
+    url.addEventListener('input', () => { t.url = url.value; });
+
+    const session = document.createElement('select');
+    session.className = 'tab-session';
+    session.title = 'Session: shared cache, separate saved login, or incognito';
+    [['shared', 'Shared'], ['persistent', 'Separate login 👤'], ['incognito', 'Incognito 🕶']].forEach(([val, lbl]) => {
+      const o = document.createElement('option');
+      o.value = val; o.textContent = lbl;
+      if ((t.session || 'shared') === val) o.selected = true;
+      session.appendChild(o);
+    });
+    session.addEventListener('change', () => { t.session = session.value; });
+
+    const del = document.createElement('button');
+    del.className = 'btn btn-ghost tiny tab-del';
+    del.textContent = '×';
+    del.title = 'Remove tab';
+    del.addEventListener('click', () => {
+      editorTabsWork.splice(i, 1);
+      if (editorTabsWork.length && !editorTabsWork.some((x) => x.isDefault)) editorTabsWork[0].isDefault = true;
+      renderEditorTabs();
+    });
+
+    row.append(def, name, url, session, del);
+    list.appendChild(row);
+  });
+}
 
 function populateServiceSelect(selected) {
   const sel = $('fService');
@@ -691,6 +996,11 @@ function maybePrefillPorts() {
   if (!$('fContainerPort').value) $('fContainerPort').value = bits[bits.length - 1];
 }
 function gatherEditor() {
+  const tabsClean = editorTabsWork
+    .map((t) => ({ name: (t.name || '').trim() || 'Tab', url: (t.url || '').trim(), isDefault: !!t.isDefault, session: t.session || 'shared' }))
+    .filter((t) => t.url || t.name !== 'Tab');
+  if (tabsClean.length && !tabsClean.some((t) => t.isDefault)) tabsClean[0].isDefault = true;
+  const def = tabsClean.find((t) => t.isDefault) || tabsClean[0];
   return {
     name: $('fName').value.trim() || 'Untitled',
     composeFile: $('fCompose').value.trim(),
@@ -699,7 +1009,8 @@ function gatherEditor() {
     hostPort: $('fHostPort').value.trim(),
     containerPort: $('fContainerPort').value.trim(),
     extraArgs: $('fExtra').value.trim(),
-    url: $('fUrl').value.trim()
+    browserTabs: tabsClean,
+    url: def ? def.url : '' // kept for backward compatibility
   };
 }
 function refreshPreview() { $('cmdPreview').textContent = previewCommand(gatherEditor()); }
@@ -783,11 +1094,12 @@ function wire() {
   $('btnRefreshTree').addEventListener('click', () => { if (projectRoot) openProject(projectRoot); });
   $('btnSaveFile').addEventListener('click', saveActiveTab);
 
-  $('navBack').addEventListener('click', () => { if (wv.canGoBack()) wv.goBack(); });
-  $('navFwd').addEventListener('click', () => { if (wv.canGoForward()) wv.goForward(); });
-  $('navReload').addEventListener('click', () => wv.reload());
-  $('navHardReload').addEventListener('click', () => wv.reloadIgnoringCache());
+  $('navBack').addEventListener('click', () => { const w = activeWebview(); if (w && w.canGoBack()) w.goBack(); });
+  $('navFwd').addEventListener('click', () => { const w = activeWebview(); if (w && w.canGoForward()) w.goForward(); });
+  $('navReload').addEventListener('click', () => { const w = activeWebview(); if (w) w.reload(); });
+  $('navHardReload').addEventListener('click', () => { const w = activeWebview(); if (w) w.reloadIgnoringCache(); });
   $('navGo').addEventListener('click', () => navigate($('urlInput').value));
+  $('btnAddTab').addEventListener('click', () => { editorTabsWork.push({ name: '', url: '', isDefault: editorTabsWork.length === 0, session: 'shared' }); renderEditorTabs(); });
   $('urlInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') navigate($('urlInput').value); });
 
   $('btnBrowse').addEventListener('click', async () => {
@@ -852,9 +1164,27 @@ function wire() {
     term.writeln(`\x1b[90m${info.line}\x1b[0m`);
     term.writeln(`\x1b[90m  (cwd: ${info.cwd})\x1b[0m`);
   });
-  window.api.onRunData((data) => term.write(data));
+  window.api.onRunData((data) => {
+    term.write(data);
+    // Servers announce when they're ready. Refresh every tab the FIRST time we
+    // see it this run (so Django's hot-reload re-prints don't keep reloading).
+    // Strip ANSI colours and match on a rolling buffer so colour codes or
+    // chunk boundaries can't hide the phrase.
+    if (!bootDetected) {
+      bootBuf = (bootBuf + data.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '')).slice(-4000);
+      // Only the actual bind line — NOT "Watching for file changes", which the
+      // autoreloader prints a couple of seconds before the server binds.
+      if (/Listening on TCP|Starting development server at|Running on http|Uvicorn running on/i.test(bootBuf)) {
+        bootDetected = true;
+        term.writeln('\x1b[90m[sde] Server is up — refreshing browser tabs.\x1b[0m');
+        setTimeout(reloadAllTabs, 500);
+      }
+    }
+  });
   window.api.onRunExit((info) => {
     setRunning(false);
+    clearInterval(bootTimer);
+    bootTimer = null;
     const code = info.signal ? `signal ${info.signal}` : `exit code ${info.code}`;
     term.writeln(`\r\n\x1b[90m[sde] Process finished (${code}).\x1b[0m`);
     const s = $('status');
@@ -882,6 +1212,7 @@ async function init() {
   renderTabBar();
   applyView();
   if (currentId) selectConfig(currentId);
+  else buildBrowserTabs(configBrowserTabs(null));
   term.writeln('\x1b[90mSimple Django Editor — pick or create a configuration, then press Run.\x1b[0m');
   term.writeln('\x1b[90mTip: double-tap Shift to search across all project files.\x1b[0m');
   if (!store.configs.length) term.writeln('\x1b[90mNo configurations yet — click “＋ New”.\x1b[0m');

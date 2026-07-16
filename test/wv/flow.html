@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8" /></head>
+<body style="margin:0">
+<script>
+const { ipcRenderer } = require('electron');
+const PORT = new URLSearchParams(location.search).get('port');
+const URL_ = `http://127.0.0.1:${PORT}/`;
+const MARKER = 'SDE_REAL_CONTENT';
+const log = (m) => ipcRenderer.send('log', m);
+
+// --- mirror the app's NEW loading logic ---
+let running = false;
+let bootTimer = null;
+const tab = { url: URL_, ok: false, loading: false, wv: null, name: 'Test' };
+
+function loadInto(t, url) { try { const p = t.wv.loadURL(url); if (p && p.catch) p.catch(() => {}); } catch (e) { try { t.wv.setAttribute('src', url); } catch (_) {} } }
+function splashDataUrl(name) {
+  const html = '<!doctype html><html><body style="background:#1e1f22;color:#ccc">Waiting… ' + name + '</body></html>';
+  return 'data:text/html;charset=utf-8,' + encodeURIComponent(html);
+}
+function showSplash(t) { if (t) loadInto(t, splashDataUrl(t.name)); }
+
+function startBootReload() {
+  clearInterval(bootTimer);
+  let attempts = 0;
+  tab.ok = false;
+  const tick = () => {
+    if (!running) { clearInterval(bootTimer); return; }
+    attempts++;
+    if (!tab.ok && !tab.loading && tab.url) { log('attempt #' + attempts); loadInto(tab, tab.url); }
+    if (tab.ok || attempts > 100) clearInterval(bootTimer);
+  };
+  bootTimer = setInterval(tick, 1300);
+  setTimeout(tick, 400);
+}
+
+const wv = document.createElement('webview');
+wv.setAttribute('src', 'about:blank');
+wv.style.cssText = 'position:absolute;inset:0;width:100%;height:100%';
+document.body.appendChild(wv);
+tab.wv = wv;
+
+wv.addEventListener('did-start-loading', () => { tab.loading = true; tab.failedLoad = false; });
+wv.addEventListener('did-stop-loading', () => { tab.loading = false; });
+wv.addEventListener('did-finish-load', () => {
+  const u = wv.getURL();
+  if (!u || u === 'about:blank' || u.indexOf('data:') === 0) return;
+  if (tab.failedLoad) { log('ignoring error-page finish for ' + u); return; }
+  wv.executeJavaScript('(function(){try{var h=document.documentElement.outerHTML.length;var b=document.body;var c=b&&(b.children.length>0||b.innerText.trim().length>0);return h>=200||!!c;}catch(e){return true;}})()').then((real) => {
+    log('finish ' + u + ' real=' + real);
+    if (real) {
+      tab.ok = true;
+      wv.executeJavaScript('document.body.innerText').then((txt) => {
+        ipcRenderer.send('result', { pass: txt.indexOf(MARKER) !== -1, detail: (txt.indexOf(MARKER) !== -1 ? 'ended with REAL content' : 'loaded but wrong content') });
+      });
+    } else if (!tab.ok) { log('empty warmup -> splash + keep retrying'); showSplash(tab); }
+  }).catch(() => { tab.ok = true; });
+});
+wv.addEventListener('did-fail-load', (e) => { if (e.isMainFrame && e.errorCode !== -3) { tab.failedLoad = true; if (!tab.ok) { log('fail ' + e.errorCode + ' -> splash'); showSplash(tab); } } });
+
+// Press "Run" at 800ms.
+setTimeout(() => { running = true; showSplash(tab); startBootReload(); log('RUN pressed'); }, 800);
+setTimeout(() => { if (!tab.ok) ipcRenderer.send('result', { pass: false, detail: 'never reached real content (stuck blank/splash)' }); }, 25000);
+</script>
+</body>
+</html>

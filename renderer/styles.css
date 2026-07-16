@@ -248,7 +248,54 @@ select:focus, input:focus { border-color: var(--accent); }
 .nav:hover { background: #34363a; }
 #urlInput { flex: 1 1 auto; height: 28px; }
 
-#wv { flex: 1 1 auto; width: 100%; border: 0; background: #fff; }
+#browserTabStrip {
+  display: flex;
+  align-items: stretch;
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+  overflow-x: auto;
+  overflow-y: hidden;
+  min-height: 30px;
+}
+.btab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px 4px 12px;
+  font-size: 12px;
+  border-right: 1px solid var(--border);
+  cursor: pointer;
+  white-space: nowrap;
+  color: var(--muted);
+  background: var(--bg-3);
+  max-width: 220px;
+}
+.btab:hover { background: #34363a; }
+.btab.active { color: var(--text); background: var(--bg); border-bottom: 2px solid var(--accent); }
+.btab-name { overflow: hidden; text-overflow: ellipsis; }
+.btab-close { color: var(--muted); font-size: 14px; border-radius: 3px; padding: 0 4px; }
+.btab-close:hover { background: var(--red); color: #fff; }
+.btab-add { color: var(--muted); font-size: 15px; padding: 4px 12px; }
+.btab-add:hover { color: var(--text); }
+.btab-sym { font-size: 11px; flex: 0 0 auto; }
+.btab.incog { background: #2b2438; }
+.btab.incog:hover { background: #362c47; }
+.btab.incog.active { background: #35294a; border-bottom-color: #a06be0; }
+.btab.persist { background: #21303a; }
+.btab.persist:hover { background: #294049; }
+.btab.persist.active { background: #263a46; border-bottom-color: #4bb3c9; }
+
+#browserViews { flex: 1 1 auto; min-height: 0; position: relative; background: #fff; }
+.bwv { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #fff; }
+
+/* Browser-tab rows in the config editor */
+.tab-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.tab-row input[type="radio"] { flex: 0 0 auto; }
+.tab-row .tab-name { flex: 0 0 130px; }
+.tab-row .tab-url { flex: 1 1 auto; }
+.tab-row .tab-session { flex: 0 0 150px; }
+.tab-row .tab-del { flex: 0 0 auto; padding: 4px 9px; }
 
 #resizer {
   flex: 0 0 auto;

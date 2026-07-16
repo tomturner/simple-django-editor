@@ -62,6 +62,7 @@
 
           <!-- Embedded browser -->
           <section id="browserPane">
+            <div id="browserTabStrip"></div>
             <div id="browserBar">
               <button id="navBack" class="nav" title="Back">‹</button>
               <button id="navFwd" class="nav" title="Forward">›</button>
@@ -70,7 +71,7 @@
               <input id="urlInput" type="text" spellcheck="false" placeholder="http://localhost:8000/" />
               <button id="navGo" class="nav" title="Go">Go</button>
             </div>
-            <webview id="wv" src="about:blank"></webview>
+            <div id="browserViews"></div>
           </section>
         </div>
 
@@ -129,8 +130,10 @@
           <input id="fExtra" type="text" placeholder="-e DJANGO_SETTINGS_MODULE=app.settings.dev" />
         </div>
         <div class="field">
-          <label>Web address / domain <span class="muted">(optional — blank = http://localhost:&lt;host port&gt;)</span></label>
-          <input id="fUrl" type="text" placeholder="e.g. https://dev.myapp.local  —  or leave blank" />
+          <label>Browser tabs <span class="muted">(opened when the server runs — ◉ marks the default/focused tab)</span></label>
+          <div id="tabsList"></div>
+          <button id="btnAddTab" class="btn btn-ghost tiny">＋ Add tab</button>
+          <p class="muted small">URL can be full (<code>https://dev.myapp.local</code>) or a path (<code>/admin/</code>) which resolves against <code>http://localhost:&lt;host port&gt;</code>. Blank = the host-port root.</p>
         </div>
         <div class="field">
           <label>Command preview</label>

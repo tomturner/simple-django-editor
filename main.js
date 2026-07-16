@@ -290,14 +290,25 @@ ipcMain.handle('project:pickFolder', async () => {
   return result.filePaths[0];
 });
 
+// Noise we never want to show in the file tree.
+const TREE_HIDE_DIRS = new Set([
+  '__pycache__', '.pytest_cache', '.mypy_cache', '.ruff_cache', '.cache'
+]);
+function isTreeHidden(name, isDir) {
+  if (isDir) return TREE_HIDE_DIRS.has(name);
+  return /\.(pyc|pyo)$/i.test(name) || name === '.DS_Store';
+}
+
 ipcMain.handle('fs:readdir', (_e, dirPath) => {
   try {
     const entries = fs.readdirSync(dirPath, { withFileTypes: true });
-    const list = entries.map((d) => ({
-      name: d.name,
-      path: path.join(dirPath, d.name),
-      isDir: d.isDirectory()
-    }));
+    const list = entries
+      .filter((d) => !isTreeHidden(d.name, d.isDirectory()))
+      .map((d) => ({
+        name: d.name,
+        path: path.join(dirPath, d.name),
+        isDir: d.isDirectory()
+      }));
     list.sort((a, b) => {
       if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
       return a.name.localeCompare(b.name);

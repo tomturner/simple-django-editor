@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8" /></head>
+<body>
+<script>
+const { ipcRenderer } = require('electron');
+const PORT = new URLSearchParams(location.search).get('port');
+const URL_ = `http://127.0.0.1:${PORT}/page`;
+const MARKER = 'SDE_MARKER_OK';
+
+function log(m) { console.log(m); }
+
+// Create a webview the way the app does: src=about:blank, then append.
+function makeWV(hidden) {
+  const wv = document.createElement('webview');
+  wv.setAttribute('src', 'about:blank');
+  if (hidden) wv.style.display = 'none';
+  document.body.appendChild(wv);
+  return wv;
+}
+
+// Run one scenario. `act(wv)` performs the navigation under test.
+// `preAttachDelay` waits before acting (mirrors build-at-select before run).
+function scenario(name, act, { hidden = false, preAttachDelay = 500 } = {}) {
+  return new Promise((resolve) => {
+    const wv = makeWV(hidden);
+    let done = false;
+    const finish = (pass, detail) => { if (!done) { done = true; try { wv.remove(); } catch (e) {} resolve({ name, pass, detail }); } };
+    wv.addEventListener('did-finish-load', async () => {
+      let u = '';
+      try { u = wv.getURL(); } catch (e) {}
+      if (!u || u.indexOf('about:blank') !== -1) return;
+      try {
+        const txt = await wv.executeJavaScript('document.body.innerText');
+        finish(txt.indexOf(MARKER) !== -1, 'loaded ' + u);
+      } catch (e) { finish(false, 'exec-error: ' + e.message); }
+    });
+    wv.addEventListener('did-fail-load', (e) => {
+      if (e.isMainFrame && e.errorCode !== -3) log(`${name}: did-fail-load ${e.errorCode} ${e.validatedURL}`);
+    });
+    setTimeout(() => { try { act(wv); } catch (e) { finish(false, 'act-threw: ' + e.message); } }, preAttachDelay);
+    setTimeout(() => finish(false, 'timeout'), 9000);
+  });
+}
+
+(async () => {
+  const results = [];
+  // The method the app currently uses on Run (single setAttribute after a delay):
+  results.push(await scenario('setAttr-once', (wv) => wv.setAttribute('src', URL_)));
+  // The "Go button" method (nudge through about:blank):
+  results.push(await scenario('setAttr-nudge', (wv) => { wv.setAttribute('src', 'about:blank'); wv.setAttribute('src', URL_); }));
+  // loadURL after attach:
+  results.push(await scenario('loadURL', (wv) => { const p = wv.loadURL(URL_); if (p && p.catch) p.catch(() => {}); }));
+  // src property setter:
+  results.push(await scenario('src-property', (wv) => { wv.src = URL_; }));
+  // Immediate (no delay) single setAttribute — mimics recreate-on-run:
+  results.push(await scenario('immediate-setAttr', (wv) => wv.setAttribute('src', URL_), { preAttachDelay: 0 }));
+  // Hidden webview navigated then never shown — does it load while display:none?
+  results.push(await scenario('hidden-setAttr', (wv) => wv.setAttribute('src', URL_), { hidden: true }));
+  ipcRenderer.send('results', results);
+})();
+</script>
+</body>
+</html>

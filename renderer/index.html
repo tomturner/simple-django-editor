@@ -82,11 +82,17 @@
         <!-- Terminal -->
         <section id="termPane">
           <div id="termBar">
-            <span class="term-title">Terminal</span>
+            <span id="tabServer" class="tterm-tab active">Server</span>
+            <span id="tabCC" class="tterm-tab">Claude Code</span>
             <span id="termStatus" class="term-status"></span>
+            <select id="ccCmd" class="cc-cmd" title="Which Claude command" style="display:none"></select>
+            <button id="btnCcRestart" class="btn btn-ghost tiny" style="display:none">Restart</button>
             <button id="btnClear" class="btn btn-ghost tiny">Clear</button>
           </div>
-          <div id="term"></div>
+          <div id="termWrap">
+            <div id="term"></div>
+            <div id="ccTerm" style="display:none"></div>
+          </div>
         </section>
       </div>
     </div>

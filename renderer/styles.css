@@ -326,7 +326,12 @@ select:focus, input:focus { border-color: var(--accent); }
 }
 .term-title { font-weight: 600; font-size: 12px; }
 .term-status { color: var(--muted); font-size: 12px; flex: 1 1 auto; }
-#term { flex: 1 1 auto; padding: 4px 6px; min-height: 0; overflow: hidden; }
+.tterm-tab { font-size: 12px; padding: 3px 10px; border-radius: 5px; cursor: pointer; color: var(--muted); }
+.tterm-tab:hover { background: var(--bg-3); }
+.tterm-tab.active { color: #fff; background: var(--bg-3); }
+.cc-cmd { padding: 3px 6px; font-size: 12px; }
+#termWrap { flex: 1 1 auto; min-height: 0; position: relative; }
+#term, #ccTerm { position: absolute; inset: 0; padding: 4px 6px; overflow: hidden; }
 
 /* ---------- Modals ---------- */
 .overlay {

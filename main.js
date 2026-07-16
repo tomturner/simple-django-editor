@@ -245,52 +245,30 @@ function send(channel, payload) {
 }
 
 // ---------------------------------------------------------------------------
-// Claude Code window — an interactive PTY terminal in the project folder.
-// Runs the chosen command (e.g. `claude`) via a login shell so the user's full
-// PATH (including ~/.local/bin) is available.
+// Claude Code — an interactive PTY terminal embedded in the main window. Runs
+// the chosen command (e.g. `claude`) in the project folder via a login shell so
+// the user's full PATH (including ~/.local/bin) is available.
 // ---------------------------------------------------------------------------
-let ccWin = null;
-let ccProjectRoot = null;
 let ccPty = null;
-
 function killCcPty() { if (ccPty) { try { ccPty.kill(); } catch (e) { /* ignore */ } ccPty = null; } }
-function ccSend(channel, payload) { if (ccWin && !ccWin.isDestroyed()) ccWin.webContents.send(channel, payload); }
 
-function openClaudeCodeWindow() {
-  if (ccWin && !ccWin.isDestroyed()) { ccWin.show(); ccWin.focus(); return; }
-  ccWin = new BrowserWindow({
-    width: 900, height: 640, minWidth: 480, minHeight: 300,
-    title: 'Claude Code', backgroundColor: '#1e1f22',
-    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false }
-  });
-  ccWin.loadFile(path.join(__dirname, 'renderer', 'claudecode.html'));
-  ccWin.on('closed', () => { ccWin = null; killCcPty(); });
-}
-
-ipcMain.handle('cc:openWindow', (_e, projectRoot) => { ccProjectRoot = projectRoot || null; openClaudeCodeWindow(); return true; });
-ipcMain.handle('cc:commands', () => {
-  const list = (loadStore().settings.claudeCommands || []).filter((c) => c && (c.command || '').trim());
-  return {
-    commands: list.map((c) => ({ name: c.name || 'Claude', command: c.command.trim(), isDefault: !!c.isDefault })),
-    cwd: ccProjectRoot
-  };
-});
 ipcMain.handle('cc:start', (_e, opts) => {
   opts = opts || {};
   killCcPty();
   let pty;
-  try { pty = require('node-pty'); } catch (e) { ccSend('cc:data', '\r\n[sde] Could not load terminal backend: ' + e.message + '\r\n'); return { ok: false }; }
+  try { pty = require('node-pty'); } catch (e) { send('cc:data', '\r\n[sde] Could not load terminal backend: ' + e.message + '\r\n'); return { ok: false }; }
   const shell = process.env.SHELL || '/bin/zsh';
-  const cwd = (ccProjectRoot && fs.existsSync(ccProjectRoot)) ? ccProjectRoot : (process.env.HOME || process.cwd());
+  const root = opts.projectRoot;
+  const cwd = (root && fs.existsSync(root)) ? root : (process.env.HOME || process.cwd());
   const env = Object.assign({}, process.env, { TERM: 'xterm-256color' });
   try {
     ccPty = pty.spawn(shell, ['-l', '-i'], { name: 'xterm-256color', cols: opts.cols || 80, rows: opts.rows || 24, cwd, env });
   } catch (e) {
-    ccSend('cc:data', '\r\n[sde] Failed to start shell: ' + e.message + '\r\n');
+    send('cc:data', '\r\n[sde] Failed to start shell: ' + e.message + '\r\n');
     return { ok: false };
   }
-  ccPty.onData((d) => ccSend('cc:data', d));
-  ccPty.onExit((ev) => { ccSend('cc:exit', { code: ev && ev.exitCode }); ccPty = null; });
+  ccPty.onData((d) => send('cc:data', d));
+  ccPty.onExit((ev) => { send('cc:exit', { code: ev && ev.exitCode }); ccPty = null; });
   const cmd = (opts.command || '').trim();
   if (cmd) setTimeout(() => { if (ccPty) ccPty.write(cmd + '\r'); }, 500);
   return { ok: true, cwd };

@@ -46,9 +46,67 @@ const term = new Terminal({
 const fitAddon = new FitAddon.FitAddon();
 term.loadAddon(fitAddon);
 term.open($('term'));
-setTimeout(safeFit, 0);
-function safeFit() { try { fitAddon.fit(); } catch (e) { /* not visible */ } }
 term.onData((data) => { if (running) window.api.termInput(data); });
+
+// Claude Code terminal (interactive PTY), a tab within the bottom panel.
+const ccTerm = new Terminal({
+  cursorBlink: true,
+  fontSize: 13,
+  fontFamily: 'ui-monospace, "SF Mono", Menlo, Consolas, monospace',
+  theme: { background: '#1e1f22', foreground: '#dfe1e5', cursor: '#dfe1e5' }
+});
+const ccFit = new FitAddon.FitAddon();
+ccTerm.loadAddon(ccFit);
+ccTerm.open($('ccTerm'));
+ccTerm.onData((d) => window.api.ccInput(d));
+let ccStarted = false;
+let activeTermTab = 'server';
+
+function safeFit() {
+  try {
+    if (activeTermTab === 'cc') {
+      ccFit.fit();
+      const d = ccFit.proposeDimensions();
+      if (d && d.cols) window.api.ccResize({ cols: d.cols, rows: d.rows });
+    } else {
+      fitAddon.fit();
+    }
+  } catch (e) { /* not visible */ }
+}
+setTimeout(safeFit, 0);
+
+function showTermTab(which) {
+  activeTermTab = which;
+  const cc = which === 'cc';
+  $('term').style.display = cc ? 'none' : '';
+  $('ccTerm').style.display = cc ? '' : 'none';
+  $('tabServer').classList.toggle('active', !cc);
+  $('tabCC').classList.toggle('active', cc);
+  $('ccCmd').style.display = cc ? '' : 'none';
+  $('btnCcRestart').style.display = cc ? '' : 'none';
+  setTimeout(() => { safeFit(); (cc ? ccTerm : term).focus(); }, 0);
+}
+
+function populateCcCommands() {
+  const sel = $('ccCmd');
+  const cmds = (store.settings.claudeCommands || []).filter((c) => c && c.command);
+  sel.innerHTML = '';
+  cmds.forEach((c) => { const o = document.createElement('option'); o.value = c.command; o.textContent = c.name || 'Claude'; sel.appendChild(o); });
+  const def = cmds.find((c) => c.isDefault) || cmds[0];
+  if (def) sel.value = def.command;
+  return cmds;
+}
+
+function startClaudeCode(command) {
+  const v = view();
+  if (v.terminal === false) { v.terminal = true; setPanel('termPane', 'resizer', true); persist(); updateToggleButtons(); }
+  showTermTab('cc');
+  ccTerm.reset();
+  ccStarted = true;
+  const d = ccFit.proposeDimensions() || { cols: 80, rows: 24 };
+  window.api.ccStart({ projectRoot: projectRoot, command: command, cols: d.cols, rows: d.rows });
+  setTimeout(() => { safeFit(); ccTerm.focus(); }, 30);
+}
 
 // ---------------------------------------------------------------------------
 // Code editor (CodeMirror) + tabs
@@ -1119,6 +1177,7 @@ function saveSettings() {
     store.settings.claudeCommands[0].isDefault = true;
   }
   persist();
+  populateCcCommands();
   closeSettings();
 }
 
@@ -1132,9 +1191,13 @@ function wire() {
   $('btnEdit').addEventListener('click', () => openConfigEditor(currentConfig() ? currentId : null));
   $('btnDelete').addEventListener('click', deleteCurrent);
   $('btnSettings').addEventListener('click', openSettings);
-  $('btnClaudeCode').addEventListener('click', () => window.api.openClaudeCode(projectRoot));
+  $('btnClaudeCode').addEventListener('click', () => { populateCcCommands(); startClaudeCode($('ccCmd').value); });
   $('btnAddAssistant').addEventListener('click', () => { assistantsWork.push({ name: '', command: '', isDefault: assistantsWork.length === 0 }); renderAssistants(); });
-  $('btnClear').addEventListener('click', () => term.clear());
+  $('btnClear').addEventListener('click', () => (activeTermTab === 'cc' ? ccTerm : term).clear());
+  $('tabServer').addEventListener('click', () => showTermTab('server'));
+  $('tabCC').addEventListener('click', () => { showTermTab('cc'); if (!ccStarted) startClaudeCode($('ccCmd').value); });
+  $('ccCmd').addEventListener('change', () => startClaudeCode($('ccCmd').value));
+  $('btnCcRestart').addEventListener('click', () => startClaudeCode($('ccCmd').value));
 
   $('configSelect').addEventListener('change', (e) => { if (e.target.value) selectConfig(e.target.value); });
 
@@ -1235,6 +1298,11 @@ function wire() {
     term.writeln(`\x1b[90m${info.line}\x1b[0m`);
     term.writeln(`\x1b[90m  (cwd: ${info.cwd})\x1b[0m`);
   });
+  window.api.onCcData((d) => ccTerm.write(d));
+  window.api.onCcExit((info) => {
+    ccTerm.write('\r\n\x1b[90m[process exited' + (info && info.code != null ? ' (' + info.code + ')' : '') + '] — Restart to run again\x1b[0m\r\n');
+    ccStarted = false;
+  });
   window.api.onRunData((data) => {
     term.write(data);
     // Servers announce when they're ready. Refresh every tab the FIRST time we
@@ -1282,6 +1350,7 @@ async function init() {
   wire();
   renderTabBar();
   applyView();
+  populateCcCommands();
   if (currentId) selectConfig(currentId);
   else buildBrowserTabs(configBrowserTabs(null));
   term.writeln('\x1b[90mSimple Django Editor — pick or create a configuration, then press Run.\x1b[0m');

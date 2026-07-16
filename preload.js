@@ -17,8 +17,6 @@ contextBridge.exposeInMainWorld('api', {
   writeFile: (p, content) => ipcRenderer.invoke('fs:writeFile', { filePath: p, content }),
   searchProject: (root, query, caseSensitive) => ipcRenderer.invoke('project:search', { root, query, caseSensitive }),
 
-  openClaudeCode: (projectRoot) => ipcRenderer.invoke('cc:openWindow', projectRoot),
-  ccCommands: () => ipcRenderer.invoke('cc:commands'),
   ccStart: (opts) => ipcRenderer.invoke('cc:start', opts),
   ccStop: () => ipcRenderer.invoke('cc:stop'),
   ccInput: (data) => ipcRenderer.send('cc:input', data),

@@ -28,6 +28,7 @@
     "productName": "Simple Django Editor",
     "asar": false,
     "artifactName": "${productName}-${version}-${arch}.${ext}",
+    "afterPack": "scripts/afterPack.js",
     "files": [
       "main.js",
       "preload.js",

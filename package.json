@@ -27,6 +27,7 @@
     "appId": "com.tomturner.simpledjangoeditor",
     "productName": "Simple Django Editor",
     "asar": false,
+    "artifactName": "${productName}-${version}-${arch}.${ext}",
     "files": [
       "main.js",
       "preload.js",

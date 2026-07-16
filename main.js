@@ -662,10 +662,12 @@ async function checkForUpdate(manual) {
     const rel = await fetchJSON(`https://api.github.com/repos/${UPDATE_REPO}/releases/latest`);
     const latest = String(rel.tag_name || '').replace(/^v/, '');
     const current = app.getVersion();
-    // Prefer the DMG matching this machine's architecture (arm64 / x64).
+    // Prefer the DMG matching this machine's architecture. (Older builds named
+    // the Intel DMG without an arch tag, so x64 falls back to "not arm64".)
     const dmgs = (rel.assets || []).filter((a) => /\.dmg$/i.test(a.name));
-    const archTag = process.arch === 'arm64' ? 'arm64' : 'x64';
-    const dmg = dmgs.find((a) => a.name.toLowerCase().indexOf(archTag) !== -1) || dmgs[0];
+    const dmg = (process.arch === 'arm64')
+      ? (dmgs.find((a) => /arm64/i.test(a.name)) || dmgs[0])
+      : (dmgs.find((a) => /x64|intel/i.test(a.name)) || dmgs.find((a) => !/arm64/i.test(a.name)) || dmgs[0]);
     const info = {
       current,
       latest,

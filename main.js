@@ -32,7 +32,12 @@ const DEFAULT_STORE = {
     forceColor: true,
     // Remove leftover one-off `... -run-<hash>` containers before each run.
     // This frees the host port and clears Compose's "orphan containers" warning.
-    autoCleanup: true
+    autoCleanup: true,
+    // Assistant (Claude) windows the user can open. Edit in Settings.
+    assistants: [
+      { name: 'Claude', url: 'https://claude.ai', isDefault: true },
+      { name: 'Claudettes', url: '' }
+    ]
   },
   configs: [],
   lastConfigId: null
@@ -238,6 +243,40 @@ function send(channel, payload) {
     mainWindow.webContents.send(channel, payload);
   }
 }
+
+// ---------------------------------------------------------------------------
+// Assistant (Claude) window
+// ---------------------------------------------------------------------------
+let assistantWin = null;
+function openAssistantWindow() {
+  if (assistantWin && !assistantWin.isDestroyed()) {
+    assistantWin.show();
+    assistantWin.focus();
+    return;
+  }
+  assistantWin = new BrowserWindow({
+    width: 480,
+    height: 860,
+    minWidth: 360,
+    minHeight: 400,
+    title: 'Claude',
+    backgroundColor: '#1e1f22',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      webviewTag: true
+    }
+  });
+  assistantWin.loadFile(path.join(__dirname, 'renderer', 'assistant.html'));
+  assistantWin.on('closed', () => { assistantWin = null; });
+}
+
+ipcMain.handle('assistant:open', () => { openAssistantWindow(); return true; });
+ipcMain.handle('assistant:list', () => {
+  const list = (loadStore().settings.assistants || []).filter((a) => a && a.url && a.url.trim());
+  return list.map((a) => ({ name: a.name || 'Assistant', url: a.url.trim(), isDefault: !!a.isDefault }));
+});
 
 function stopChild(signal) {
   if (!child) return;

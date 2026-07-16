@@ -11,6 +11,7 @@ let running = false;
 let editingId = null;       // run-config id being edited in the modal, or null
 let parsedServices = [];    // [{name, ports}] from the last compose parse
 let editorTabsWork = [];    // working copy of browser tabs while editing a config
+let assistantsWork = [];    // working copy of assistants while editing settings
 let projectRoot = null;     // folder shown in the file tree
 let latestUpdate = null;    // last update-check result
 let appVersion = '';        // this app's version
@@ -1054,7 +1055,39 @@ function openSettings() {
   $('sForceColor').checked = store.settings.forceColor !== false;
   $('sAutoCleanup').checked = store.settings.autoCleanup !== false;
   $('sAutoSave').checked = store.settings.autoSave !== false;
+  assistantsWork = (store.settings.assistants && store.settings.assistants.length
+    ? store.settings.assistants
+    : [{ name: 'Claude', url: 'https://claude.ai', isDefault: true }]
+  ).map((a) => ({ name: a.name || '', url: a.url || '', isDefault: !!a.isDefault }));
+  renderAssistants();
   $('settingsOverlay').classList.remove('hidden');
+}
+
+function renderAssistants() {
+  const list = $('assistantsList');
+  list.innerHTML = '';
+  assistantsWork.forEach((a, i) => {
+    const row = document.createElement('div');
+    row.className = 'tab-row';
+    const def = document.createElement('input');
+    def.type = 'radio'; def.name = 'defAssistant'; def.checked = !!a.isDefault; def.title = 'Open this one by default';
+    def.addEventListener('change', () => { assistantsWork.forEach((x) => { x.isDefault = false; }); a.isDefault = true; });
+    const name = document.createElement('input');
+    name.type = 'text'; name.className = 'tab-name'; name.placeholder = 'Name'; name.value = a.name || '';
+    name.addEventListener('input', () => { a.name = name.value; });
+    const url = document.createElement('input');
+    url.type = 'text'; url.className = 'tab-url'; url.placeholder = 'https://claude.ai'; url.value = a.url || '';
+    url.addEventListener('input', () => { a.url = url.value; });
+    const del = document.createElement('button');
+    del.className = 'btn btn-ghost tiny tab-del'; del.textContent = '×'; del.title = 'Remove';
+    del.addEventListener('click', () => {
+      assistantsWork.splice(i, 1);
+      if (assistantsWork.length && !assistantsWork.some((x) => x.isDefault)) assistantsWork[0].isDefault = true;
+      renderAssistants();
+    });
+    row.append(def, name, url, del);
+    list.appendChild(row);
+  });
 }
 function closeSettings() { $('settingsOverlay').classList.add('hidden'); }
 
@@ -1080,6 +1113,11 @@ function saveSettings() {
   store.settings.forceColor = $('sForceColor').checked;
   store.settings.autoCleanup = $('sAutoCleanup').checked;
   store.settings.autoSave = $('sAutoSave').checked;
+  store.settings.assistants = assistantsWork
+    .map((a) => ({ name: (a.name || '').trim() || 'Assistant', url: (a.url || '').trim(), isDefault: !!a.isDefault }));
+  if (store.settings.assistants.length && !store.settings.assistants.some((a) => a.isDefault)) {
+    store.settings.assistants[0].isDefault = true;
+  }
   persist();
   closeSettings();
 }
@@ -1094,6 +1132,8 @@ function wire() {
   $('btnEdit').addEventListener('click', () => openConfigEditor(currentConfig() ? currentId : null));
   $('btnDelete').addEventListener('click', deleteCurrent);
   $('btnSettings').addEventListener('click', openSettings);
+  $('btnAssistant').addEventListener('click', () => window.api.openAssistant());
+  $('btnAddAssistant').addEventListener('click', () => { assistantsWork.push({ name: '', url: '', isDefault: assistantsWork.length === 0 }); renderAssistants(); });
   $('btnClear').addEventListener('click', () => term.clear());
 
   $('configSelect').addEventListener('change', (e) => { if (e.target.value) selectConfig(e.target.value); });

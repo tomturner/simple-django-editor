@@ -1,6 +1,6 @@
 {
   "name": "simple-django-editor",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "A tiny IDE-style app for running Django servers inside Docker Compose — file tree, code editor, built-in Chromium browser, and terminal.",
   "main": "main.js",
   "author": "Tom Turner",
@@ -38,8 +38,20 @@
     "mac": {
       "category": "public.app-category.developer-tools",
       "target": [
-        { "target": "dmg", "arch": ["arm64", "x64"] },
-        { "target": "zip", "arch": ["arm64", "x64"] }
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
       ]
     },
     "win": {

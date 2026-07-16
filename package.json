@@ -1,6 +1,6 @@
 {
   "name": "simple-django-editor",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A tiny PyCharm-style IDE for running Django servers inside Docker Compose — file tree, code editor, built-in Chromium browser, and terminal.",
   "main": "main.js",
   "author": "Tom Turner",

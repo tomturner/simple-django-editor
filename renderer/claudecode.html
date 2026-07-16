@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy"
+          content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;" />
+    <title>Claude Code</title>
+    <link rel="stylesheet" href="../node_modules/@xterm/xterm/css/xterm.css" />
+    <style>
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #1e1f22; color: #dfe1e5;
+        font-family: -apple-system, "Segoe UI", Roboto, sans-serif; font-size: 13px; }
+      body { display: flex; flex-direction: column; }
+      #bar { display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: #2b2d30;
+        border-bottom: 1px solid #393b40; flex: 0 0 auto; }
+      select, button { background: #26282b; color: #dfe1e5; border: 1px solid #393b40; border-radius: 5px;
+        padding: 5px 8px; font-size: 13px; cursor: pointer; outline: none; }
+      button:hover { background: #34363a; }
+      #cwd { color: #9aa0a6; font-size: 12px; margin-left: auto; overflow: hidden; text-overflow: ellipsis;
+        white-space: nowrap; max-width: 55%; }
+      #term { flex: 1 1 auto; min-height: 0; padding: 4px 6px; }
+      #term .xterm { height: 100%; }
+    </style>
+  </head>
+  <body>
+    <div id="bar">
+      <label style="color:#9aa0a6;font-size:12px">Command</label>
+      <select id="pick" title="Which Claude command"></select>
+      <button id="restart" title="Restart the command">Restart</button>
+      <span id="cwd"></span>
+    </div>
+    <div id="term"></div>
+    <script src="../node_modules/@xterm/xterm/lib/xterm.js"></script>
+    <script src="../node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
+    <script src="claudecode.js"></script>
+  </body>
+</html>

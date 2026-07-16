@@ -33,10 +33,10 @@ const DEFAULT_STORE = {
     // Remove leftover one-off `... -run-<hash>` containers before each run.
     // This frees the host port and clears Compose's "orphan containers" warning.
     autoCleanup: true,
-    // Assistant (Claude) windows the user can open. Edit in Settings.
-    assistants: [
-      { name: 'Claude', url: 'https://claude.ai', isDefault: true },
-      { name: 'Claudettes', url: '' }
+    // Claude Code commands the user can run in the terminal window. Edit in Settings.
+    claudeCommands: [
+      { name: 'Claude', command: 'claude', isDefault: true },
+      { name: 'Claudettes', command: '' }
     ]
   },
   configs: [],
@@ -245,62 +245,59 @@ function send(channel, payload) {
 }
 
 // ---------------------------------------------------------------------------
-// Assistant (Claude) window
+// Claude Code window — an interactive PTY terminal in the project folder.
+// Runs the chosen command (e.g. `claude`) via a login shell so the user's full
+// PATH (including ~/.local/bin) is available.
 // ---------------------------------------------------------------------------
-let assistantWin = null;
-let assistantProjectRoot = null; // project folder to scope assistants to
+let ccWin = null;
+let ccProjectRoot = null;
+let ccPty = null;
 
-// Substitute project tokens in an assistant URL:
-//   {project}     -> the project path, URL-encoded (for query params)
-//   {projectPath} -> the raw project path
-//   {projectName} -> the project folder name, URL-encoded
-function applyProjectTokens(url, root) {
-  if (!url) return url;
-  const clean = root ? String(root).replace(/[\/\\]+$/, '') : '';
-  const name = clean ? clean.split(/[\/\\]/).pop() : '';
-  return url
-    .replace(/\{project\}/g, clean ? encodeURIComponent(clean) : '')
-    .replace(/\{projectPath\}/g, clean)
-    .replace(/\{projectName\}/g, name ? encodeURIComponent(name) : '');
-}
+function killCcPty() { if (ccPty) { try { ccPty.kill(); } catch (e) { /* ignore */ } ccPty = null; } }
+function ccSend(channel, payload) { if (ccWin && !ccWin.isDestroyed()) ccWin.webContents.send(channel, payload); }
 
-function openAssistantWindow() {
-  if (assistantWin && !assistantWin.isDestroyed()) {
-    assistantWin.show();
-    assistantWin.focus();
-    return;
-  }
-  assistantWin = new BrowserWindow({
-    width: 480,
-    height: 860,
-    minWidth: 360,
-    minHeight: 400,
-    title: 'Claude',
-    backgroundColor: '#1e1f22',
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
-      contextIsolation: true,
-      nodeIntegration: false,
-      webviewTag: true
-    }
+function openClaudeCodeWindow() {
+  if (ccWin && !ccWin.isDestroyed()) { ccWin.show(); ccWin.focus(); return; }
+  ccWin = new BrowserWindow({
+    width: 900, height: 640, minWidth: 480, minHeight: 300,
+    title: 'Claude Code', backgroundColor: '#1e1f22',
+    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false }
   });
-  assistantWin.loadFile(path.join(__dirname, 'renderer', 'assistant.html'));
-  assistantWin.on('closed', () => { assistantWin = null; });
+  ccWin.loadFile(path.join(__dirname, 'renderer', 'claudecode.html'));
+  ccWin.on('closed', () => { ccWin = null; killCcPty(); });
 }
 
-ipcMain.handle('assistant:open', (_e, projectRoot) => {
-  assistantProjectRoot = projectRoot || null;
-  openAssistantWindow();
-  return true;
+ipcMain.handle('cc:openWindow', (_e, projectRoot) => { ccProjectRoot = projectRoot || null; openClaudeCodeWindow(); return true; });
+ipcMain.handle('cc:commands', () => {
+  const list = (loadStore().settings.claudeCommands || []).filter((c) => c && (c.command || '').trim());
+  return {
+    commands: list.map((c) => ({ name: c.name || 'Claude', command: c.command.trim(), isDefault: !!c.isDefault })),
+    cwd: ccProjectRoot
+  };
 });
-ipcMain.handle('assistant:list', () => {
-  const list = (loadStore().settings.assistants || []).filter((a) => a && a.url && a.url.trim());
-  return list.map((a) => ({
-    name: a.name || 'Assistant',
-    url: applyProjectTokens(a.url.trim(), assistantProjectRoot),
-    isDefault: !!a.isDefault
-  }));
+ipcMain.handle('cc:start', (_e, opts) => {
+  opts = opts || {};
+  killCcPty();
+  let pty;
+  try { pty = require('node-pty'); } catch (e) { ccSend('cc:data', '\r\n[sde] Could not load terminal backend: ' + e.message + '\r\n'); return { ok: false }; }
+  const shell = process.env.SHELL || '/bin/zsh';
+  const cwd = (ccProjectRoot && fs.existsSync(ccProjectRoot)) ? ccProjectRoot : (process.env.HOME || process.cwd());
+  const env = Object.assign({}, process.env, { TERM: 'xterm-256color' });
+  try {
+    ccPty = pty.spawn(shell, ['-l', '-i'], { name: 'xterm-256color', cols: opts.cols || 80, rows: opts.rows || 24, cwd, env });
+  } catch (e) {
+    ccSend('cc:data', '\r\n[sde] Failed to start shell: ' + e.message + '\r\n');
+    return { ok: false };
+  }
+  ccPty.onData((d) => ccSend('cc:data', d));
+  ccPty.onExit((ev) => { ccSend('cc:exit', { code: ev && ev.exitCode }); ccPty = null; });
+  const cmd = (opts.command || '').trim();
+  if (cmd) setTimeout(() => { if (ccPty) ccPty.write(cmd + '\r'); }, 500);
+  return { ok: true, cwd };
 });
+ipcMain.on('cc:input', (_e, data) => { if (ccPty) ccPty.write(data); });
+ipcMain.on('cc:resize', (_e, size) => { if (ccPty && size) { try { ccPty.resize(size.cols, size.rows); } catch (e) { /* ignore */ } } });
+ipcMain.handle('cc:stop', () => { killCcPty(); return true; });
 
 function stopChild(signal) {
   if (!child) return;
@@ -725,4 +722,4 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
-app.on('before-quit', () => stopChild('SIGTERM'));
+app.on('before-quit', () => { stopChild('SIGTERM'); killCcPty(); });

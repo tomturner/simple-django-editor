@@ -17,8 +17,14 @@ contextBridge.exposeInMainWorld('api', {
   writeFile: (p, content) => ipcRenderer.invoke('fs:writeFile', { filePath: p, content }),
   searchProject: (root, query, caseSensitive) => ipcRenderer.invoke('project:search', { root, query, caseSensitive }),
 
-  openAssistant: (projectRoot) => ipcRenderer.invoke('assistant:open', projectRoot),
-  assistantList: () => ipcRenderer.invoke('assistant:list'),
+  openClaudeCode: (projectRoot) => ipcRenderer.invoke('cc:openWindow', projectRoot),
+  ccCommands: () => ipcRenderer.invoke('cc:commands'),
+  ccStart: (opts) => ipcRenderer.invoke('cc:start', opts),
+  ccStop: () => ipcRenderer.invoke('cc:stop'),
+  ccInput: (data) => ipcRenderer.send('cc:input', data),
+  ccResize: (size) => ipcRenderer.send('cc:resize', size),
+  onCcData: (cb) => ipcRenderer.on('cc:data', (_e, d) => cb(d)),
+  onCcExit: (cb) => ipcRenderer.on('cc:exit', (_e, i) => cb(i)),
 
   checkUpdate: () => ipcRenderer.invoke('update:check'),
   openDownload: (url) => ipcRenderer.invoke('update:open', url),

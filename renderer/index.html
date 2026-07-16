@@ -21,7 +21,7 @@
       <div class="tb-right">
         <button id="btnUpdate" class="btn btn-run" style="display:none" title="A new version is available">⬆ Update</button>
         <span id="status" class="status">idle</span>
-        <button id="btnAssistant" class="btn btn-ghost" title="Open Claude in a separate window">✦ Claude</button>
+        <button id="btnClaudeCode" class="btn btn-ghost" title="Open Claude Code in a terminal in the project folder">✦ Claude Code</button>
         <span class="toggle-group">
           <button id="tgFiles" class="btn btn-ghost toggle on" title="Toggle file explorer">Files</button>
           <button id="tgEditor" class="btn btn-ghost toggle on" title="Toggle editor">Editor</button>
@@ -169,10 +169,10 @@
           <p class="muted small">Removes leftover one-off run containers and stops a same-project container that's holding the host port (e.g. your live web container), then takes the port over. Clears Compose's “orphan containers” warning too.</p>
         </div>
         <div class="field">
-          <label>Assistants (Claude) <span class="muted">(◉ = the one that opens by default)</span></label>
+          <label>Claude commands <span class="muted">(◉ = the one that runs by default)</span></label>
           <div id="assistantsList"></div>
-          <button id="btnAddAssistant" class="btn btn-ghost tiny">＋ Add assistant</button>
-          <p class="muted small">e.g. <code>Claude → https://claude.ai</code>, or your Claudettes URL. Opened via the ✦ Claude button; logins persist. Use <code>{project}</code> (URL-encoded path), <code>{projectPath}</code> (raw), or <code>{projectName}</code> in a URL to scope it to the current project — e.g. <code>http://claudettes.localhost/?project={project}</code>.</p>
+          <button id="btnAddAssistant" class="btn btn-ghost tiny">＋ Add command</button>
+          <p class="muted small">The ✦ Claude Code button opens a terminal in the current project folder and runs the chosen command through your login shell (so your PATH — including <code>~/.local/bin</code> — is available). e.g. <code>Claude → claude</code>, or a Claudettes command.</p>
         </div>
         <div class="field">
           <label>Updates</label>

@@ -1055,10 +1055,10 @@ function openSettings() {
   $('sForceColor').checked = store.settings.forceColor !== false;
   $('sAutoCleanup').checked = store.settings.autoCleanup !== false;
   $('sAutoSave').checked = store.settings.autoSave !== false;
-  assistantsWork = (store.settings.assistants && store.settings.assistants.length
-    ? store.settings.assistants
-    : [{ name: 'Claude', url: 'https://claude.ai', isDefault: true }]
-  ).map((a) => ({ name: a.name || '', url: a.url || '', isDefault: !!a.isDefault }));
+  assistantsWork = (store.settings.claudeCommands && store.settings.claudeCommands.length
+    ? store.settings.claudeCommands
+    : [{ name: 'Claude', command: 'claude', isDefault: true }]
+  ).map((a) => ({ name: a.name || '', command: a.command || '', isDefault: !!a.isDefault }));
   renderAssistants();
   $('settingsOverlay').classList.remove('hidden');
 }
@@ -1076,8 +1076,8 @@ function renderAssistants() {
     name.type = 'text'; name.className = 'tab-name'; name.placeholder = 'Name'; name.value = a.name || '';
     name.addEventListener('input', () => { a.name = name.value; });
     const url = document.createElement('input');
-    url.type = 'text'; url.className = 'tab-url'; url.placeholder = 'https://claude.ai'; url.value = a.url || '';
-    url.addEventListener('input', () => { a.url = url.value; });
+    url.type = 'text'; url.className = 'tab-url'; url.placeholder = 'claude'; url.value = a.command || '';
+    url.addEventListener('input', () => { a.command = url.value; });
     const del = document.createElement('button');
     del.className = 'btn btn-ghost tiny tab-del'; del.textContent = '×'; del.title = 'Remove';
     del.addEventListener('click', () => {
@@ -1113,10 +1113,10 @@ function saveSettings() {
   store.settings.forceColor = $('sForceColor').checked;
   store.settings.autoCleanup = $('sAutoCleanup').checked;
   store.settings.autoSave = $('sAutoSave').checked;
-  store.settings.assistants = assistantsWork
-    .map((a) => ({ name: (a.name || '').trim() || 'Assistant', url: (a.url || '').trim(), isDefault: !!a.isDefault }));
-  if (store.settings.assistants.length && !store.settings.assistants.some((a) => a.isDefault)) {
-    store.settings.assistants[0].isDefault = true;
+  store.settings.claudeCommands = assistantsWork
+    .map((a) => ({ name: (a.name || '').trim() || 'Claude', command: (a.command || '').trim(), isDefault: !!a.isDefault }));
+  if (store.settings.claudeCommands.length && !store.settings.claudeCommands.some((a) => a.isDefault)) {
+    store.settings.claudeCommands[0].isDefault = true;
   }
   persist();
   closeSettings();
@@ -1132,8 +1132,8 @@ function wire() {
   $('btnEdit').addEventListener('click', () => openConfigEditor(currentConfig() ? currentId : null));
   $('btnDelete').addEventListener('click', deleteCurrent);
   $('btnSettings').addEventListener('click', openSettings);
-  $('btnAssistant').addEventListener('click', () => window.api.openAssistant(projectRoot));
-  $('btnAddAssistant').addEventListener('click', () => { assistantsWork.push({ name: '', url: '', isDefault: assistantsWork.length === 0 }); renderAssistants(); });
+  $('btnClaudeCode').addEventListener('click', () => window.api.openClaudeCode(projectRoot));
+  $('btnAddAssistant').addEventListener('click', () => { assistantsWork.push({ name: '', command: '', isDefault: assistantsWork.length === 0 }); renderAssistants(); });
   $('btnClear').addEventListener('click', () => term.clear());
 
   $('configSelect').addEventListener('change', (e) => { if (e.target.value) selectConfig(e.target.value); });

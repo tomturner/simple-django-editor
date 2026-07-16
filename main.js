@@ -5,6 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
 const https = require('https');
+const os = require('os');
 const yaml = require('js-yaml');
 
 const UPDATE_REPO = 'tomturner/simple-django-editor';
@@ -662,18 +663,20 @@ async function checkForUpdate(manual) {
     const rel = await fetchJSON(`https://api.github.com/repos/${UPDATE_REPO}/releases/latest`);
     const latest = String(rel.tag_name || '').replace(/^v/, '');
     const current = app.getVersion();
-    // Prefer the DMG matching this machine's architecture. (Older builds named
-    // the Intel DMG without an arch tag, so x64 falls back to "not arm64".)
-    const dmgs = (rel.assets || []).filter((a) => /\.dmg$/i.test(a.name));
-    const dmg = (process.arch === 'arm64')
-      ? (dmgs.find((a) => /arm64/i.test(a.name)) || dmgs[0])
-      : (dmgs.find((a) => /x64|intel/i.test(a.name)) || dmgs.find((a) => !/arm64/i.test(a.name)) || dmgs[0]);
+    // Prefer the asset matching this machine's architecture. (Older builds
+    // named the Intel files without an arch tag, so x64 falls back to "not arm64".)
+    const pickArch = (assets) => (process.arch === 'arm64')
+      ? (assets.find((a) => /arm64/i.test(a.name)) || assets[0])
+      : (assets.find((a) => /x64|intel/i.test(a.name)) || assets.find((a) => !/arm64/i.test(a.name)) || assets[0]);
+    const dmg = pickArch((rel.assets || []).filter((a) => /\.dmg$/i.test(a.name)));
+    const zip = pickArch((rel.assets || []).filter((a) => /\.zip$/i.test(a.name)));
     const info = {
       current,
       latest,
       newer: !!latest && compareVersions(latest, current) > 0,
       url: rel.html_url,
       dmgUrl: dmg && dmg.browser_download_url,
+      zipUrl: zip && zip.browser_download_url,
       manual: !!manual
     };
     send('update:status', info);
@@ -688,6 +691,90 @@ async function checkForUpdate(manual) {
 ipcMain.handle('update:check', () => checkForUpdate(true));
 ipcMain.handle('update:open', (_e, url) => { if (url) shell.openExternal(url); return true; });
 ipcMain.handle('app:version', () => app.getVersion());
+
+// Stream a URL to a file, following redirects, reporting percent progress.
+function downloadFile(url, dest, onProgress, redirects) {
+  redirects = redirects || 0;
+  return new Promise((resolve, reject) => {
+    const req = https.get(url, { headers: { 'User-Agent': 'simple-django-editor' } }, (res) => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && redirects < 5) {
+        res.resume();
+        return resolve(downloadFile(res.headers.location, dest, onProgress, redirects + 1));
+      }
+      if (res.statusCode !== 200) { reject(new Error('HTTP ' + res.statusCode)); return; }
+      const total = parseInt(res.headers['content-length'] || '0', 10);
+      let got = 0;
+      const file = fs.createWriteStream(dest);
+      res.on('data', (c) => { got += c.length; if (total && onProgress) onProgress(Math.round((got / total) * 100)); });
+      res.pipe(file);
+      file.on('finish', () => file.close(() => resolve()));
+      file.on('error', (e) => reject(e));
+    });
+    req.on('error', reject);
+    req.setTimeout(120000, () => req.destroy(new Error('download timed out')));
+  });
+}
+function execP(cmd, args) {
+  return new Promise((resolve, reject) => {
+    const p = spawn(cmd, args);
+    let err = '';
+    p.stderr.on('data', (d) => { err += d.toString(); });
+    p.on('error', reject);
+    p.on('close', (code) => (code === 0 ? resolve() : reject(new Error(cmd + ' exited ' + code + ': ' + err))));
+  });
+}
+function findAppIn(dir) {
+  try {
+    const name = fs.readdirSync(dir).find((f) => f.endsWith('.app'));
+    return name ? path.join(dir, name) : null;
+  } catch (e) { return null; }
+}
+
+// Download the new version's zip, swap the app bundle in place, relaunch.
+// Works without code-signing, but needs the app to be in a writable location.
+ipcMain.handle('update:install', async (_e, url) => {
+  if (process.platform !== 'darwin') return { ok: false, error: 'Auto-update is macOS-only for now.' };
+  if (!app.isPackaged) return { ok: false, error: 'Auto-update only runs in the installed app (not in dev).' };
+  if (!url) return { ok: false, error: 'No download URL for this architecture.' };
+
+  const appBundle = app.getPath('exe').replace(/\/Contents\/MacOS\/[^/]+$/, '');
+  const parent = path.dirname(appBundle);
+  try { fs.accessSync(parent, fs.constants.W_OK); }
+  catch (e) { return { ok: false, error: 'Can\'t write to ' + parent + '. Move the app to Applications, or update manually.' }; }
+
+  let tmp;
+  try {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sde-update-'));
+    const zipPath = path.join(tmp, 'update.zip');
+    await downloadFile(url, zipPath, (pct) => send('update:progress', { phase: 'download', percent: pct }));
+    send('update:progress', { phase: 'extract' });
+    await execP('/usr/bin/ditto', ['-x', '-k', zipPath, tmp]); // preserves the .app bundle + perms
+    const newApp = findAppIn(tmp);
+    if (!newApp || !fs.existsSync(path.join(newApp, 'Contents', 'MacOS'))) {
+      return { ok: false, error: 'Downloaded update did not contain a valid app.' };
+    }
+    // Detached script: wait for us to quit, swap the bundle (restore on failure), relaunch.
+    const script = [
+      '#!/bin/bash',
+      'PID="$1"; OLD="$2"; NEW="$3"',
+      'for i in $(seq 1 120); do kill -0 "$PID" 2>/dev/null || break; sleep 0.5; done',
+      'rm -rf "$OLD.old" 2>/dev/null',
+      'mv "$OLD" "$OLD.old" 2>/dev/null',
+      'if /usr/bin/ditto "$NEW" "$OLD"; then rm -rf "$OLD.old"; else rm -rf "$OLD"; mv "$OLD.old" "$OLD"; fi',
+      '/usr/bin/xattr -dr com.apple.quarantine "$OLD" 2>/dev/null',
+      'open "$OLD"'
+    ].join('\n') + '\n';
+    const scriptPath = path.join(tmp, 'swap.sh');
+    fs.writeFileSync(scriptPath, script, { mode: 0o755 });
+    send('update:progress', { phase: 'installing' });
+    const child = spawn('/bin/bash', [scriptPath, String(process.pid), appBundle, newApp], { detached: true, stdio: 'ignore' });
+    child.unref();
+    setTimeout(() => app.quit(), 600);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
 
 // ---------------------------------------------------------------------------
 // App lifecycle

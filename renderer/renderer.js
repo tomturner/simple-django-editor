@@ -1248,14 +1248,33 @@ function wire() {
   $('btnSettingsSave').addEventListener('click', saveSettings);
 
   // Updates
-  $('btnUpdate').addEventListener('click', () => {
-    if (latestUpdate) window.api.openDownload(latestUpdate.dmgUrl || latestUpdate.url);
+  $('btnUpdate').addEventListener('click', async () => {
+    if (!latestUpdate || !latestUpdate.newer) return;
+    if (!latestUpdate.zipUrl) { window.api.openDownload(latestUpdate.dmgUrl || latestUpdate.url); return; }
+    if (!confirm('Update to v' + latestUpdate.latest + '?\n\nThe app will download it in the background and restart into the new version.')) return;
+    const btn = $('btnUpdate');
+    btn.disabled = true;
+    btn.textContent = 'Starting…';
+    const res = await window.api.installUpdate(latestUpdate.zipUrl);
+    if (!res || !res.ok) {
+      btn.disabled = false;
+      btn.textContent = '⬆ Update to v' + latestUpdate.latest;
+      alert('Automatic update couldn\'t complete: ' + ((res && res.error) || 'unknown error') + '\n\nOpening the download page so you can update manually.');
+      window.api.openDownload(latestUpdate.dmgUrl || latestUpdate.url);
+    }
+    // On success the app quits and relaunches into the new version.
   });
   $('btnCheckUpdate').addEventListener('click', () => {
     $('updateStatus').textContent = 'Checking…';
     window.api.checkUpdate();
   });
   window.api.onUpdateStatus(handleUpdateStatus);
+  window.api.onUpdateProgress((p) => {
+    const btn = $('btnUpdate');
+    if (p.phase === 'download') btn.textContent = 'Downloading ' + (p.percent || 0) + '%…';
+    else if (p.phase === 'extract') btn.textContent = 'Extracting…';
+    else if (p.phase === 'installing') btn.textContent = 'Installing… restarting';
+  });
   window.api.appVersion().then((v) => { appVersion = v; $('verText').textContent = 'Version ' + v; });
 
   // Find dialog

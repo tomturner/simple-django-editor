@@ -19,6 +19,7 @@
         <button id="btnStop" class="btn btn-stop" disabled title="Stop">■ Stop</button>
       </div>
       <div class="tb-right">
+        <button id="btnUpdate" class="btn btn-run" style="display:none" title="A new version is available">⬆ Update</button>
         <span id="status" class="status">idle</span>
         <span class="toggle-group">
           <button id="tgFiles" class="btn btn-ghost toggle on" title="Toggle file explorer">Files</button>
@@ -165,6 +166,14 @@
         <div class="field checkbox">
           <label><input id="sAutoCleanup" type="checkbox" /> Free the host port &amp; clean up before each run</label>
           <p class="muted small">Removes leftover one-off run containers and stops a same-project container that's holding the host port (e.g. your live web container), then takes the port over. Clears Compose's “orphan containers” warning too.</p>
+        </div>
+        <div class="field">
+          <label>Updates</label>
+          <div class="row">
+            <span id="verText" class="muted" style="flex:1 1 auto">Version …</span>
+            <button id="btnCheckUpdate" class="btn btn-ghost">Check for updates</button>
+          </div>
+          <p id="updateStatus" class="muted small"></p>
         </div>
         <div class="modal-actions">
           <button id="btnSettingsCancel" class="btn btn-ghost">Cancel</button>

@@ -17,6 +17,11 @@ contextBridge.exposeInMainWorld('api', {
   writeFile: (p, content) => ipcRenderer.invoke('fs:writeFile', { filePath: p, content }),
   searchProject: (root, query, caseSensitive) => ipcRenderer.invoke('project:search', { root, query, caseSensitive }),
 
+  checkUpdate: () => ipcRenderer.invoke('update:check'),
+  openDownload: (url) => ipcRenderer.invoke('update:open', url),
+  appVersion: () => ipcRenderer.invoke('app:version'),
+  onUpdateStatus: (cb) => ipcRenderer.on('update:status', (_e, info) => cb(info)),
+
   onRunData: (cb) => ipcRenderer.on('run:data', (_e, data) => cb(data)),
   onRunInfo: (cb) => ipcRenderer.on('run:info', (_e, info) => cb(info)),
   onRunExit: (cb) => ipcRenderer.on('run:exit', (_e, info) => cb(info))

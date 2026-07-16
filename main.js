@@ -4,7 +4,10 @@ const { app, BrowserWindow, ipcMain, dialog, Menu, shell, clipboard } = require(
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
+const https = require('https');
 const yaml = require('js-yaml');
+
+const UPDATE_REPO = 'tomturner/simple-django-editor';
 
 // Apps launched from Finder/Dock inherit a minimal PATH that usually omits the
 // locations where `docker` lives, so spawning it would fail with ENOENT. Make
@@ -583,10 +586,72 @@ function openViewSource(url) {
 }
 
 // ---------------------------------------------------------------------------
+// Update check (GitHub Releases). Notify-and-download — a silent in-place
+// install would require an Apple-signed app.
+// ---------------------------------------------------------------------------
+function fetchJSON(url, redirects) {
+  redirects = redirects || 0;
+  return new Promise((resolve, reject) => {
+    const req = https.get(url, { headers: { 'User-Agent': 'simple-django-editor', 'Accept': 'application/vnd.github+json' } }, (res) => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && redirects < 5) {
+        res.resume();
+        return resolve(fetchJSON(res.headers.location, redirects + 1));
+      }
+      let data = '';
+      res.on('data', (c) => { data += c; });
+      res.on('end', () => {
+        if (res.statusCode !== 200) return reject(new Error('HTTP ' + res.statusCode));
+        try { resolve(JSON.parse(data)); } catch (e) { reject(e); }
+      });
+    });
+    req.on('error', reject);
+    req.setTimeout(10000, () => req.destroy(new Error('timed out')));
+  });
+}
+
+function compareVersions(a, b) {
+  const pa = String(a).split('.').map((n) => parseInt(n, 10) || 0);
+  const pb = String(b).split('.').map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < 3; i++) {
+    if ((pa[i] || 0) > (pb[i] || 0)) return 1;
+    if ((pa[i] || 0) < (pb[i] || 0)) return -1;
+  }
+  return 0;
+}
+
+async function checkForUpdate(manual) {
+  try {
+    const rel = await fetchJSON(`https://api.github.com/repos/${UPDATE_REPO}/releases/latest`);
+    const latest = String(rel.tag_name || '').replace(/^v/, '');
+    const current = app.getVersion();
+    const dmg = (rel.assets || []).find((a) => /\.dmg$/i.test(a.name));
+    const info = {
+      current,
+      latest,
+      newer: !!latest && compareVersions(latest, current) > 0,
+      url: rel.html_url,
+      dmgUrl: dmg && dmg.browser_download_url,
+      manual: !!manual
+    };
+    send('update:status', info);
+    return info;
+  } catch (e) {
+    const info = { error: e.message, manual: !!manual, current: app.getVersion() };
+    send('update:status', info);
+    return info;
+  }
+}
+
+ipcMain.handle('update:check', () => checkForUpdate(true));
+ipcMain.handle('update:open', (_e, url) => { if (url) shell.openExternal(url); return true; });
+ipcMain.handle('app:version', () => app.getVersion());
+
+// ---------------------------------------------------------------------------
 // App lifecycle
 // ---------------------------------------------------------------------------
 app.whenReady().then(() => {
   createWindow();
+  setTimeout(() => checkForUpdate(false), 3500); // quiet check shortly after launch
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });

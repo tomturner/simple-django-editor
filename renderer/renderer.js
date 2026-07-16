@@ -12,6 +12,8 @@ let editingId = null;       // run-config id being edited in the modal, or null
 let parsedServices = [];    // [{name, ports}] from the last compose parse
 let editorTabsWork = [];    // working copy of browser tabs while editing a config
 let projectRoot = null;     // folder shown in the file tree
+let latestUpdate = null;    // last update-check result
+let appVersion = '';        // this app's version
 
 // Editor tabs
 let tabs = [];              // { id, path, name, doc, dirty, dotEl }
@@ -1055,6 +1057,24 @@ function openSettings() {
   $('settingsOverlay').classList.remove('hidden');
 }
 function closeSettings() { $('settingsOverlay').classList.add('hidden'); }
+
+function handleUpdateStatus(info) {
+  latestUpdate = info;
+  const btn = $('btnUpdate');
+  if (info.error) {
+    if (info.manual) $('updateStatus').textContent = 'Update check failed: ' + info.error;
+    return;
+  }
+  if (info.current) { appVersion = info.current; $('verText').textContent = 'Version ' + info.current; }
+  if (info.newer) {
+    btn.style.display = '';
+    btn.textContent = '⬆ Update to v' + info.latest;
+    $('updateStatus').textContent = 'Update available: v' + info.latest + '. Click to download the new version.';
+  } else {
+    btn.style.display = 'none';
+    if (info.manual) $('updateStatus').textContent = "You're up to date (v" + info.current + ').';
+  }
+}
 function saveSettings() {
   store.settings.composeCmd = $('sCompose').value.trim() || 'docker compose';
   store.settings.forceColor = $('sForceColor').checked;
@@ -1123,6 +1143,17 @@ function wire() {
 
   $('btnSettingsCancel').addEventListener('click', closeSettings);
   $('btnSettingsSave').addEventListener('click', saveSettings);
+
+  // Updates
+  $('btnUpdate').addEventListener('click', () => {
+    if (latestUpdate) window.api.openDownload(latestUpdate.dmgUrl || latestUpdate.url);
+  });
+  $('btnCheckUpdate').addEventListener('click', () => {
+    $('updateStatus').textContent = 'Checking…';
+    window.api.checkUpdate();
+  });
+  window.api.onUpdateStatus(handleUpdateStatus);
+  window.api.appVersion().then((v) => { appVersion = v; $('verText').textContent = 'Version ' + v; });
 
   // Find dialog
   $('findClose').addEventListener('click', closeFind);
